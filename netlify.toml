@@ -1,0 +1,15 @@
+# Netlify 설정: 저장소의 server 폴더만 웹사이트(중계 서버)로 배포
+[build]
+  base = "server"
+  publish = "public"
+  # 서버 폴더가 바뀌지 않았으면(앱 코드만 바뀌었으면) 다시 배포하지 않음
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ."
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/join/*"
+  to = "/join.html"
+  status = 200

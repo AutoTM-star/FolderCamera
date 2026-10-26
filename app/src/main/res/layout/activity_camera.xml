@@ -73,6 +73,14 @@
                 android:textColor="#FFD54F"
                 android:textSize="13sp"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/uploadText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#9FD4FF"
+                android:textSize="13sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView

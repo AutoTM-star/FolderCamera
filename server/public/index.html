@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>폴더 카메라 관리</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f6feb; --accent-text: #fff; --danger: #d92d20; --ok: #12a150; --chip: #eef3ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e8ebf0; --muted: #98a2b3; --line: #2c3340;
+      --accent: #5b8def; --accent-text: #fff; --danger: #f97066; --ok: #47cd89; --chip: #232c3d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  input, textarea { width: 100%; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; }
+  textarea { min-height: 220px; resize: vertical; }
+  label { display: block; font-weight: 600; margin: 12px 0 6px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer;
+    background: var(--accent); color: var(--accent-text); }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button.danger { background: transparent; color: var(--danger); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > input { flex: 1; min-width: 160px; }
+  .status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
+  .dot.on { background: var(--ok); }
+  .muted { color: var(--muted); font-weight: 400; }
+  .site { border-top: 1px solid var(--line); padding: 14px 0; }
+  .site:first-of-type { border-top: 0; padding-top: 0; }
+  .site-name { font-weight: 700; font-size: 16px; }
+  .code { display: inline-block; background: var(--chip); border-radius: 6px; padding: 2px 8px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 16px; letter-spacing: 2px; font-weight: 700; }
+  .link { word-break: break-all; color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+  .msg { margin-top: 10px; min-height: 1.5em; }
+  .msg.err { color: var(--danger); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>📷 폴더 카메라 관리</h1>
+  <p class="sub">현장을 만들고 초대 링크를 보내면, 그 현장에서 찍은 사진이 내 OneDrive로 모여요.</p>
+
+  <section class="card" id="loginCard">
+    <h2>관리자 로그인</h2>
+    <div class="row">
+      <input id="pw" type="password" placeholder="관리자 비밀번호 (Netlify의 ADMIN_PASSWORD)" autocomplete="current-password">
+      <button id="loginBtn">확인</button>
+    </div>
+    <div class="msg err" id="loginMsg"></div>
+  </section>
+
+  <div id="app" class="hidden">
+    <section class="card">
+      <h2>OneDrive 연결</h2>
+      <div class="status"><span class="dot" id="dot"></span><span id="statusText">확인 중…</span></div>
+      <p class="muted" id="rootText"></p>
+      <div class="row">
+        <button id="connectBtn">OneDrive 연결하기</button>
+        <button class="ghost" id="logoutBtn">이 기기에서 로그아웃</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>새 현장 만들기</h2>
+      <label for="siteName">현장 이름</label>
+      <input id="siteName" placeholder="예: 강릉송정">
+      <label for="folders">기본 폴더 <span class="muted">(한 줄에 하나, 비워도 돼요)</span></label>
+      <textarea id="folders">01 전경사진
+01-1 파노라마
+02 검측사진
+03 공종별 사진
+04 품질관리
+05 안전관리
+06 대관·감리
+07 업무지시
+08 본사보고
+09 모델하우스
+10 준공서류
+11 기타</textarea>
+      <p class="muted">폴더 이름에는 / \ : * ? " &lt; &gt; | # % 를 쓸 수 없어요.</p>
+      <button id="createBtn">현장 만들기</button>
+      <div class="msg" id="createMsg"></div>
+    </section>
+
+    <section class="card">
+      <h2>현장 목록</h2>
+      <div id="sites"><p class="muted">아직 현장이 없어요.</p></div>
+    </section>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let pw = "";
+  try { pw = localStorage.getItem("fc_admin_pw") || ""; } catch (e) {}
+
+  async function api(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: { "x-admin-password": pw, ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(data.error || "오류 (" + res.status + ")"), { status: res.status });
+    return data;
+  }
+
+  function inviteLink(code) { return location.origin + "/join/" + code; }
+  function inviteMessage(site) {
+    return "[폴더 카메라] " + site.name + " 현장 사진 공유\n"
+      + "아래 링크를 눌러 앱을 설치하고 현장에 참여하세요.\n"
+      + inviteLink(site.code) + "\n(초대 코드: " + site.code + ")";
+  }
+
+  async function copy(text, btn) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {
+      const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t);
+      t.select(); document.execCommand("copy"); t.remove();
+    }
+    const old = btn.textContent; btn.textContent = "복사됨 ✓"; setTimeout(() => (btn.textContent = old), 1500);
+  }
+
+  function renderSites(sites) {
+    const box = $("sites");
+    box.innerHTML = "";
+    if (!sites.length) { box.innerHTML = '<p class="muted">아직 현장이 없어요.</p>'; return; }
+    for (const site of sites) {
+      const el = document.createElement("div");
+      el.className = "site";
+      el.innerHTML =
+        '<div class="row" style="justify-content:space-between">' +
+          '<span class="site-name"></span><span class="code"></span></div>' +
+        '<div class="link"></div>' +
+        '<div class="row"><button class="copyMsg">초대 메시지 복사</button>' +
+        '<button class="ghost copyLink">링크만 복사</button>' +
+        '<button class="danger del">삭제</button></div>';
+      el.querySelector(".site-name").textContent = site.name;
+      el.querySelector(".code").textContent = site.code;
+      el.querySelector(".link").textContent = inviteLink(site.code);
+      el.querySelector(".copyMsg").onclick = (e) => copy(inviteMessage(site), e.target);
+      el.querySelector(".copyLink").onclick = (e) => copy(inviteLink(site.code), e.target);
+      el.querySelector(".del").onclick = async () => {
+        if (!confirm("'" + site.name + "' 현장을 삭제할까요?\n초대 코드만 막히고, OneDrive의 사진은 그대로 남아요.")) return;
+        await api("DELETE", "/api/admin/sites?code=" + encodeURIComponent(site.code));
+        load();
+      };
+      box.appendChild(el);
+    }
+  }
+
+  async function load() {
+    try {
+      const s = await api("GET", "/api/admin/status");
+      $("loginCard").classList.add("hidden");
+      $("app").classList.remove("hidden");
+      $("dot").classList.toggle("on", s.connected);
+      $("statusText").innerHTML = s.connected
+        ? '연결됨 <span class="muted"></span>'
+        : '아직 연결 안 됨 <span class="muted">— 아래 버튼으로 내 Microsoft 계정에 로그인하세요</span>';
+      if (s.connected) $("statusText").querySelector(".muted").textContent = "(" + s.account + ")";
+      $("rootText").textContent = "사진은 OneDrive의 '" + s.root + " / 현장 이름 / 폴더' 에 저장돼요.";
+      $("connectBtn").textContent = s.connected ? "다른 계정으로 다시 연결" : "OneDrive 연결하기";
+      renderSites(s.sites);
+    } catch (e) {
+      $("app").classList.add("hidden");
+      $("loginCard").classList.remove("hidden");
+      if (pw) $("loginMsg").textContent = e.message;
+    }
+  }
+
+  $("loginBtn").onclick = () => {
+    pw = $("pw").value;
+    try { localStorage.setItem("fc_admin_pw", pw); } catch (e) {}
+    $("loginMsg").textContent = "";
+    load();
+  };
+  $("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") $("loginBtn").click(); });
+  $("logoutBtn").onclick = () => {
+    pw = ""; try { localStorage.removeItem("fc_admin_pw"); } catch (e) {}
+    $("pw").value = ""; load();
+  };
+  $("connectBtn").onclick = () => { location.href = "/api/login?pw=" + encodeURIComponent(pw); };
+
+  $("createBtn").onclick = async () => {
+    const msg = $("createMsg");
+    const btn = $("createBtn");
+    msg.className = "msg"; msg.textContent = "만드는 중… (폴더가 많으면 몇 초 걸려요)";
+    btn.disabled = true;
+    try {
+      const folders = $("folders").value.split("\n").map((s) => s.trim()).filter(Boolean);
+      const site = await api("POST", "/api/admin/sites", { name: $("siteName").value, folders });
+      msg.textContent = "'" + site.name + "' 현장을 만들었어요. 초대 코드: " + site.code;
+      $("siteName").value = "";
+      load();
+    } catch (e) {
+      msg.className = "msg err"; msg.textContent = e.message;
+    } finally { btn.disabled = false; }
+  };
+
+  if (pw) load();
+</script>
+</body>
+</html>

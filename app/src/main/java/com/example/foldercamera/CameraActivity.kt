@@ -32,6 +32,8 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.os.BundleCompat
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,6 +49,8 @@ import java.util.concurrent.TimeUnit
 class CameraActivity : AppCompatActivity() {
 
     private lateinit var folder: String
+    private var site: Site? = null          // 공유 현장이면 OneDrive로 자동 업로드
+    private lateinit var uploadText: TextView
     private lateinit var previewView: PreviewView
     private lateinit var flashOverlay: View
     private lateinit var focusRing: View
@@ -85,7 +89,7 @@ class CameraActivity : AppCompatActivity() {
             pendingSystemUri = null
             if (uri == null) return@registerForActivityResult
             if (success) {
-                onPhotoSaved()
+                onPhotoSaved(uri)
                 launchSystemCamera()   // 연속 촬영: 뒤로가기를 누르면 이 화면으로 돌아옴
             } else {
                 contentResolver.delete(uri, null, null)   // 취소 → 빈 파일 정리
@@ -97,6 +101,7 @@ class CameraActivity : AppCompatActivity() {
         setContentView(R.layout.activity_camera)
 
         folder = intent.getStringExtra(EXTRA_FOLDER) ?: run { finish(); return }
+        site = intent.getStringExtra(EXTRA_SITE_CODE)?.let { SiteStore.find(this, it) }
 
         if (savedInstanceState != null) {
             pendingSystemUri = BundleCompat.getParcelable(savedInstanceState, KEY_PENDING, Uri::class.java)
@@ -111,9 +116,12 @@ class CameraActivity : AppCompatActivity() {
         countText = findViewById(R.id.countText)
         flashButton = findViewById(R.id.flashButton)
         zoomRow = findViewById(R.id.zoomRow)
-        findViewById<TextView>(R.id.folderName).text = "📁 $folder"
+        uploadText = findViewById(R.id.uploadText)
+        findViewById<TextView>(R.id.folderName).text =
+            site?.let { "🏗 ${it.name} › $folder" } ?: "📁 $folder"
         updateCountText()
         updateFlashButton()
+        observeUploads()
 
         findViewById<View>(R.id.backButton).setOnClickListener { finish() }
         findViewById<View>(R.id.shutterButton).setOnClickListener { takePhoto() }
@@ -339,12 +347,20 @@ class CameraActivity : AppCompatActivity() {
     // ───────── 촬영 ─────────
 
     private fun newPhotoValues(): ContentValues {
-        val fileName = "IMG_" + SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+        var fileName = "IMG_" + SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+        val currentSite = site
+        // 공유 현장: 파일 이름 앞에 촬영자 이름 (누가 찍었는지 알 수 있게)
+        val uploader = SiteStore.uploader(this)
+        if (currentSite != null && uploader.isNotBlank()) fileName = "${uploader}_$fileName"
+        // 저장 폴더: 내장메모리/Pictures/폴더이름  (공유 현장은 Pictures/현장이름/폴더이름)
+        val relativePath = if (currentSite != null)
+            "${Environment.DIRECTORY_PICTURES}/${currentSite.name}/$folder"
+        else
+            "${Environment.DIRECTORY_PICTURES}/$folder"
         return ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.jpg")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            // 여기서 저장 폴더가 정해짐: 내장메모리/Pictures/폴더이름
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$folder")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
         }
     }
 
@@ -364,7 +380,7 @@ class CameraActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    onPhotoSaved()
+                    onPhotoSaved(output.savedUri)
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -395,9 +411,30 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
-    private fun onPhotoSaved() {
+    private fun onPhotoSaved(uri: Uri?) {
         savedCount++
         updateCountText()
+        val currentSite = site
+        if (currentSite != null && uri != null) {
+            UploadWorker.enqueue(this, uri, currentSite, folder)
+        }
+    }
+
+    /** 공유 현장: 업로드 대기 중인 사진 수 표시 */
+    private fun observeUploads() {
+        val currentSite = site ?: return
+        WorkManager.getInstance(this)
+            .getWorkInfosByTagLiveData(UploadWorker.tag(currentSite.code))
+            .observe(this) { infos ->
+                val waiting = infos.count { !it.state.isFinished }
+                val failed = infos.count { it.state == WorkInfo.State.FAILED }
+                uploadText.visibility = View.VISIBLE
+                uploadText.text = when {
+                    waiting > 0 -> "☁ 업로드 대기 ${waiting}장"
+                    failed > 0 -> "⚠ 업로드 실패 ${failed}장"
+                    else -> "☁ OneDrive 업로드 완료"
+                }
+            }
     }
 
     private fun updateCountText() {
@@ -423,6 +460,7 @@ class CameraActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_FOLDER = "folder"
+        const val EXTRA_SITE_CODE = "site_code"
         private const val KEY_PENDING = "pending_uri"
         private const val KEY_COUNT = "saved_count"
         private const val KEY_LENS = "lens"

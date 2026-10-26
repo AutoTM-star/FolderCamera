@@ -21,16 +21,35 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:padding="32dp"
-            android:text="아직 폴더가 없어요.\n아래 버튼으로 새 폴더를 만들어 보세요."
+            android:text="아직 폴더가 없어요.\n\n공유 현장에 참여하려면 [현장 참여]\n이 폰에만 저장하려면 [새 폴더]"
             android:textSize="16sp" />
     </FrameLayout>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/addFolderButton"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:minHeight="64dp"
-        android:text="+ 새 폴더 만들기"
-        android:textSize="18sp" />
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/joinButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:minHeight="64dp"
+            android:text="☁ 현장 참여"
+            android:textSize="17sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/addFolderButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:minHeight="64dp"
+            android:text="+ 새 폴더"
+            android:textSize="17sp" />
+    </LinearLayout>
 </LinearLayout>
