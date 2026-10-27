@@ -128,7 +128,7 @@ class CameraActivity : AppCompatActivity() {
         zoomRow = findViewById(R.id.zoomRow)
         uploadText = findViewById(R.id.uploadText)
         albumButton = findViewById(R.id.albumButton)
-        albumButton.setOnClickListener { AlbumActivity.open(this, folder, site) }
+        albumButton.setOnClickListener { AlbumActivity.open(this, folder, site, cloud = false) }
         findViewById<TextView>(R.id.folderName).text =
             site?.let { "🏗 ${it.name} › $folder" } ?: "📁 $folder"
         updateCountText()

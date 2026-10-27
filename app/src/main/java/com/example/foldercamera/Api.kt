@@ -6,6 +6,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
+/** 현장 클라우드의 사진 1장 (small/large = 미리보기, full = 원본) */
+data class RemotePhoto(val name: String, val small: String?, val large: String?, val full: String?)
+
 /** 서버가 오류로 응답한 경우 (status = HTTP 상태 코드) */
 class ApiException(val status: Int, message: String) : IOException(message)
 
@@ -54,6 +57,39 @@ object Api {
     /** 비어 있는 현장 폴더 삭제 (사진이 있으면 서버가 409로 거절) */
     fun deleteFolder(server: String, code: String, name: String) {
         request("DELETE", "$server/api/folders?code=${enc(code)}&name=${enc(name)}")
+    }
+
+    /** 현장 클라우드에 올라간 사진 목록 (모든 참여자). 주소가 /api/... 처럼 상대 경로면 서버 주소를 붙임 */
+    fun photos(server: String, code: String, folder: String): List<RemotePhoto> {
+        val arr = request("GET", "$server/api/photos?code=${enc(code)}&folder=${enc(folder)}").getJSONArray("photos")
+        fun abs(u: String?): String? = when {
+            u.isNullOrBlank() || u == "null" -> null
+            u.startsWith("/") -> server + u
+            else -> u
+        }
+        return (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            RemotePhoto(
+                name = o.optString("name"),
+                small = abs(o.optString("small")),
+                large = abs(o.optString("large")),
+                full = abs(o.optString("full")),
+            )
+        }
+    }
+
+    /** 주소에서 파일 내려받기 (사진 미리보기·원본용) */
+    fun download(url: String): ByteArray {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 60_000
+            val status = conn.responseCode
+            if (status !in 200..299) throw IOException("내려받기 실패 ($status)")
+            return conn.inputStream.use { it.readBytes() }
+        } finally {
+            conn.disconnect()
+        }
     }
 
     /** OneDrive 업로드 주소 받기 */

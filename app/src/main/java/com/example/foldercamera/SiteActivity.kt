@@ -141,7 +141,7 @@ class SiteActivity : AppCompatActivity() {
     private fun showMenu(position: Int, anchor: View) {
         val folder = folders.getOrNull(position) ?: return
         val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, 1, 0, "🖼 앨범 보기 (이 폰에서 찍은 사진)")
+        popup.menu.add(0, 1, 0, "🖼 앨범 보기 (모두가 올린 사진)")
         popup.menu.add(0, 2, 1, "🗑 폴더 삭제")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
