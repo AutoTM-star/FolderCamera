@@ -39,7 +39,7 @@
   .bar button:active { background: var(--chip); }
   #globalStatus { font-size: 13px; color: var(--accent); padding: 0 8px 6px; display: none; }
 
-  main { max-width: 640px; margin: 0 auto; padding: 12px 16px 120px; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px 16px 140px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
   .list { overflow: hidden; }
   .row { display: flex; align-items: center; min-height: 60px; padding: 0 4px 0 16px; border-top: 1px solid var(--line); }
@@ -290,7 +290,10 @@ async function processQueue() {
   } finally {
     busy = false;
     refreshStatus();
-    if (uploaded && current) loadServerPhotos();
+    if (uploaded) {
+      toast(`☁ OneDrive에 ${uploaded}장 올라갔어요`);
+      if (current) loadServerPhotos();
+    }
   }
 }
 
@@ -522,7 +525,8 @@ function folderView(code, folder) {
     <div class="status">🏗 ${esc(site.name)} › ${esc(folder)}</div>
     <div class="section" id="localTitle" hidden>이 기기에서 올리는 중</div>
     <div class="grid" id="localGrid"></div>
-    <div class="section" id="serverTitle">OneDrive에 올라간 사진</div>
+    <div class="section" id="serverTitle" style="display:flex;align-items:center">OneDrive에 올라간 사진
+      <button id="reloadBtn" style="margin-left:auto;color:var(--accent);font-weight:700;font-size:14px;padding:6px 4px">↻ 새로고침</button></div>
     <div class="status" id="serverStatus">불러오는 중…</div>
     <div class="grid" id="serverGrid"></div>
     <div class="dock"><div class="inner">
@@ -531,6 +535,7 @@ function folderView(code, folder) {
     </div></div>`;
   $("#shootBtn").onclick = () => { $("#camInput").value = ""; $("#camInput").click(); };
   $("#pickBtn").onclick = () => { $("#pickInput").value = ""; $("#pickInput").click(); };
+  $("#reloadBtn").onclick = () => { $("#serverStatus").textContent = "불러오는 중…"; loadServerPhotos(); };
   refreshStatus();
   loadServerPhotos();
 }
@@ -687,6 +692,8 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
   route();
   processQueue();
   setInterval(processQueue, 30000);
+  // 폴더 화면을 보고 있으면 다른 사람이 올린 사진도 20초마다 새로 불러오기
+  setInterval(() => { if (current && document.visibilityState === "visible") loadServerPhotos(); }, 20000);
   if (!myName) await askName(true);
   if (join) {
     if (sites.some((s) => s.code === join)) go("s", join);
