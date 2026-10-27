@@ -87,7 +87,14 @@
     </div>
     <p class="muted" id="loginNote" style="margin:10px 0 0">로그인 정보(비밀번호)는 이 앱이 보지 않아요. Microsoft·Google 로그인 화면에서 직접 로그인해요.</p>
   </div>
-  <p class="muted" style="text-align:center"><a class="link" href="/cam">📷 웹앱 열기</a></p>
+  <div class="card">
+    <h2>📱 폴더 카메라 앱</h2>
+    <div class="stack">
+      <a class="btn primary" id="apkBtn" href="https://github.com/AutoTM-star/FolderCamera/releases/latest/download/FolderCamera.apk">⬇ 안드로이드 앱 받기</a>
+      <a class="btn ghost" href="/cam">📷 웹앱 열기 (아이폰·설치 없이)</a>
+    </div>
+    <p class="muted" id="apkNote" style="margin:10px 0 0">안드로이드는 앱을 받아 설치하세요. <a class="link" href="/app">설치 방법</a></p>
+  </div>
 </main>
 <div id="toast"></div>
 
@@ -372,6 +379,10 @@ function loadScript(src) {
   });
 }
 
+if (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+  $("#apkBtn").style.display = "none";
+  $("#apkNote").textContent = "아이폰은 앱 설치 없이 웹앱으로 써요. 안드로이드 앱은 안드로이드 폰에서 이 페이지를 열면 받을 수 있어요.";
+}
 render();
 </script>
 </body>
