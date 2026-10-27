@@ -315,7 +315,7 @@ async function refreshStatus() {
   } else {
     g.style.display = "none";
   }
-  if (current) renderLocal(all);
+  if (current) current.personal ? renderPersonal(all) : renderLocal(all);
 }
 
 // ───────── 화면 공통 ─────────
@@ -422,11 +422,25 @@ function homeView() {
   const banner = showBanner ? `<div class="card banner"><div>📲 <b>홈 화면에 추가</b>하면 앱처럼 쓸 수 있어요.<br>
       사파리 아래쪽 <b>공유 버튼(⬆︎)</b> → <b>홈 화면에 추가</b></div><button class="x" id="hideBanner">✕</button></div>` : "";
   const rows = sites.map((s) => `<div class="row" data-code="${esc(s.code)}"><span class="name">🏗 ${esc(s.name)}</span><button class="more" data-more="${esc(s.code)}">⋮</button></div>`).join("");
+  const mine = personalFolders();
+  const prow = mine.map((f) => `<div class="row" data-p="${esc(f)}"><span class="name">📁 ${esc(f)}</span><button class="more" data-pmore="${esc(f)}">⋮</button></div>`).join("");
   $("#view").innerHTML = `${banner}
-    ${sites.length ? `<div class="card list">${rows}</div><p class="hint">현장을 누르면 폴더가 나와요. 사진은 관리자 OneDrive로 자동으로 모여요.</p>`
-      : `<div class="empty">아직 참여한 현장이 없어요.<br><br>받은 <b>초대 링크</b>를 누르거나,<br>아래 <b>현장 참여</b>에 초대 코드를 넣으세요.</div>`}
-    <div class="dock"><div class="inner"><button class="btn primary" id="joinBtn">☁ 현장 참여</button></div></div>`;
+    <div class="section">☁ 공유 현장 · 관리자 OneDrive로 자동 업로드</div>
+    ${sites.length ? `<div class="card list">${rows}</div>`
+      : `<div class="card empty" style="padding:20px">받은 <b>초대 링크</b>를 누르거나<br>아래 <b>현장 참여</b>에 초대 코드를 넣으세요.</div>`}
+    <div class="section">📁 내 폴더 · 이 기기에만 저장 (업로드 안 됨)</div>
+    ${mine.length ? `<div class="card list">${prow}</div>`
+      : `<div class="card empty" style="padding:20px">나만 쓰는 폴더를 만들려면<br>아래 <b>+ 내 폴더</b>를 누르세요.</div>`}
+    <div class="dock"><div class="inner">
+      <button class="btn primary" id="joinBtn">☁ 현장 참여</button>
+      <button class="btn ghost" id="newPersonal">+ 내 폴더</button>
+    </div></div>`;
   $("#joinBtn").onclick = () => askJoin();
+  $("#newPersonal").onclick = newPersonalFolder;
+  document.querySelectorAll(".row[data-p]").forEach((row) => { row.onclick = () => go("p", row.dataset.p); });
+  document.querySelectorAll("[data-pmore]").forEach((b) => {
+    b.onclick = (e) => { e.stopPropagation(); deletePersonalFolder(b.dataset.pmore); };
+  });
   const hb = $("#hideBanner");
   if (hb) hb.onclick = () => { store.set("fc_hide_banner", true); homeView(); };
   document.querySelectorAll(".row[data-code]").forEach((row) => {
@@ -443,6 +457,90 @@ function homeView() {
       }
     };
   });
+}
+
+// ───────── 내 폴더 (이 기기에만 저장) ─────────
+function personalFolders() { return store.get("fc_personal", []); }
+function savePersonal(list) { store.set("fc_personal", list); }
+const isPersonal = (r) => r.status === "local";
+
+async function newPersonalFolder() {
+  const list = personalFolders();
+  const name = await ask({
+    title: "새 내 폴더 (이 기기에만 저장)",
+    message: "현장과 상관없이 나만 쓰는 폴더예요. OneDrive로 올라가지 않아요.",
+    placeholder: "예: 개인, 영수증",
+    ok: "만들기",
+    validate: (v) => {
+      const p = nameProblem(v);
+      if (p) return p;
+      if (list.some((f) => f.toLowerCase() === v.toLowerCase())) return "이미 있는 폴더예요";
+      return null;
+    },
+  });
+  if (!name) return;
+  savePersonal(list.concat(name).sort((a, b) => a.localeCompare(b, "ko", { numeric: true })));
+  go("p", name);
+}
+
+async function deletePersonalFolder(folder) {
+  const recs = (await queue.all()).filter((r) => isPersonal(r) && r.folder === folder);
+  const msg = recs.length
+    ? `'${folder}' 폴더와 사진 ${recs.length}장을 지울까요?\n사진 앱에 저장하지 않은 사진은 되돌릴 수 없어요.`
+    : `'${folder}' 폴더를 지울까요?`;
+  if (!confirm(msg)) return;
+  for (const r of recs) await queue.del(r.id);
+  savePersonal(personalFolders().filter((f) => f !== folder));
+  toast(`'${folder}' 폴더를 삭제했어요`);
+  homeView();
+}
+
+function personalView(folder) {
+  if (!personalFolders().includes(folder)) return go();
+  current = { code: null, folder, personal: true };
+  setBar("📁 " + folder, { back: () => go() });
+  $("#view").innerHTML = `
+    <div class="card banner" style="font-size:13px">⚠ 이 폴더 사진은 <b>이 기기의 웹앱 안에만</b> 있어요.
+      잃어버리지 않게 <b>사진 앱에 저장</b>해 두세요.</div>
+    <div class="section" style="display:flex;align-items:center"><span id="pCount">내 사진</span>
+      <button id="saveAll" style="margin-left:auto;color:var(--accent);font-weight:700;font-size:14px;padding:6px 4px" hidden>📥 모두 사진 앱에 저장</button></div>
+    <div class="grid" id="personalGrid"></div>
+    <div class="dock"><div class="inner">
+      <button class="btn ghost" id="pickBtn" style="flex:0 0 30%">🖼 고르기</button>
+      <button class="btn primary huge" id="shootBtn">📷 촬영</button>
+    </div></div>`;
+  $("#shootBtn").onclick = () => { $("#camInput").value = ""; $("#camInput").click(); };
+  $("#pickBtn").onclick = () => { $("#pickInput").value = ""; $("#pickInput").click(); };
+  refreshStatus();
+}
+
+function renderPersonal(all) {
+  const grid = $("#personalGrid");
+  if (!grid || !current) return;
+  localUrls.forEach((u) => URL.revokeObjectURL(u));
+  localUrls = [];
+  const mine = all.filter((r) => isPersonal(r) && r.folder === current.folder).sort((a, b) => b.id - a.id);
+  $("#pCount").textContent = mine.length ? `내 사진 ${mine.length}장` : "아직 찍은 사진이 없어요";
+  const saveAll = $("#saveAll");
+  saveAll.hidden = mine.length === 0;
+  saveAll.onclick = () => saveManyToPhotos(mine);
+  grid.innerHTML = mine.map((r, i) => {
+    const src = r.thumb ? URL.createObjectURL(r.thumb) : "";
+    if (src) localUrls.push(src);
+    return `<div class="cell" data-i="${i}">${src ? `<img src="${src}" alt="">` : ""}</div>`;
+  }).join("");
+  grid.querySelectorAll("[data-i]").forEach((cell) => {
+    cell.onclick = () => openViewer(mine.map((r) => ({ local: r })), Number(cell.dataset.i));
+  });
+}
+
+async function saveManyToPhotos(recs) {
+  const files = recs.map((r) => new File([r.blob], r.name, { type: r.blob.type || "image/jpeg" }));
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try { await navigator.share({ files }); } catch (e) {}
+  } else {
+    for (const r of recs) await saveToPhotos(r.blob, r.name);
+  }
 }
 
 // ───────── 화면: 현장 (폴더 목록) ─────────
@@ -542,14 +640,15 @@ function folderView(code, folder) {
 
 async function handleFiles(files) {
   if (!current || !files || !files.length) return;
-  const { code, folder } = current;
+  const { code, folder, personal } = current;
   flash();
   for (const file of files) {
     const blob = new Blob([file], { type: file.type || "image/jpeg" });
     const thumb = await makeThumb(blob);
-    await queue.add({ code, folder, name: photoName(blob.type), blob, thumb, status: "pending", created: Date.now() });
+    await queue.add({ code, folder, name: photoName(blob.type), blob, thumb, status: personal ? "local" : "pending", created: Date.now() });
   }
-  toast(files.length > 1 ? `${files.length}장 저장 · OneDrive로 올리는 중` : "📷 저장됨 · OneDrive로 올리는 중");
+  if (personal) toast(files.length > 1 ? `📁 ${files.length}장 저장됨` : "📁 저장됨");
+  else toast(files.length > 1 ? `${files.length}장 저장 · OneDrive로 올리는 중` : "📷 저장됨 · OneDrive로 올리는 중");
   refreshStatus();
   processQueue();
 }
@@ -624,10 +723,11 @@ function openViewer(items, index) {
       objectUrl = URL.createObjectURL(it.local.blob);
       img.src = objectUrl;
       $(".name", el).textContent = it.local.name;
-      bottom.innerHTML = `<button data-save>📥 사진 앱에 저장</button><button data-del>🗑 올리기 취소</button>`;
+      const personal = isPersonal(it.local);
+      bottom.innerHTML = `<button data-save>📥 사진 앱에 저장</button><button data-del>${personal ? "🗑 삭제" : "🗑 올리기 취소"}</button>`;
       $("[data-save]", el).onclick = () => saveToPhotos(it.local.blob, it.local.name);
       $("[data-del]", el).onclick = async () => {
-        if (!confirm("이 사진을 올리지 않고 지울까요?")) return;
+        if (!confirm(personal ? "이 사진을 삭제할까요? 되돌릴 수 없어요." : "이 사진을 올리지 않고 지울까요?")) return;
         await queue.del(it.local.id);
         el.remove(); refreshStatus();
       };
@@ -672,6 +772,7 @@ function route() {
     if (parts[2] === "f" && parts[3]) return folderView(parts[1], parts[3]);
     return siteView(parts[1]);
   }
+  if (parts[0] === "p" && parts[1]) return personalView(parts[1]);
   return homeView();
 }
 window.addEventListener("hashchange", route);
