@@ -61,6 +61,15 @@ function cleanName(raw, what = "이름") {
   return name;
 }
 
+/** "상위/하위" 폴더 경로 → 이름 배열 (각 이름 검사) */
+function cleanPath(raw, what = "폴더") {
+  const segs = String(raw ?? "").split("/").map((s) => s.trim()).filter(Boolean);
+  if (!segs.length) throw new HttpError(400, `${what} 이름을 입력하세요`);
+  if (segs.length > 6) throw new HttpError(400, "폴더가 너무 깊어요 (최대 6단계)");
+  return segs.map((s) => cleanName(s, `${what} 이름`));
+}
+const optPath = (raw) => (String(raw ?? "").trim() ? cleanPath(raw) : []);
+
 function env(key) {
   const value = process.env[key];
   if (!value) throw new HttpError(500, `${key} 환경 변수가 설정되지 않았어요`);
@@ -161,13 +170,31 @@ function msRef(site, segs = []) {
   return segs.length ? `/me/drive/items/${site.folderId}:/${enc(segs)}:` : `/me/drive/items/${site.folderId}`;
 }
 
-async function msEnsureSub(token, site, folder) {
-  if (site.legacy) return msEnsurePath(token, [ROOT, site.name, folder]);
-  const { res, data } = await graph(token, "POST", `${msRef(site)}/children`, {
-    name: folder, folder: {}, "@microsoft.graph.conflictBehavior": "fail",
-  });
-  if (res.status === 404) throw new HttpError(404, "현장 폴더를 찾을 수 없어요. 클라우드에서 지워졌는지 확인하세요");
-  if (!res.ok && res.status !== 409) throw new HttpError(502, `OneDrive 폴더를 만들 수 없어요: ${data?.error?.message || res.status}`);
+/** 현장 안 폴더 경로(segs)를 없으면 차례로 만듦 */
+async function msEnsureSub(token, site, segs) {
+  if (site.legacy) return msEnsurePath(token, [ROOT, site.name, ...segs]);
+  for (let i = 0; i < segs.length; i++) {
+    const { res, data } = await graph(token, "POST", `${msRef(site, segs.slice(0, i))}/children`, {
+      name: segs[i], folder: {}, "@microsoft.graph.conflictBehavior": "fail",
+    });
+    if (res.status === 404) throw new HttpError(404, "현장 폴더를 찾을 수 없어요. 클라우드에서 지워졌는지 확인하세요");
+    if (!res.ok && res.status !== 409) throw new HttpError(502, `OneDrive 폴더를 만들 수 없어요: ${data?.error?.message || res.status}`);
+  }
+}
+
+/** Graph 여러 요청 한 번에 (최대 20개씩) */
+async function msBatch(token, urls) {
+  const out = [];
+  for (let i = 0; i < urls.length; i += 20) {
+    const chunk = urls.slice(i, i + 20);
+    const { res, data } = await graph(token, "POST", "/$batch", {
+      requests: chunk.map((url, j) => ({ id: String(j), method: "GET", url })),
+    });
+    if (!res.ok) { chunk.forEach(() => out.push(null)); continue; }
+    const byId = Object.fromEntries((data.responses || []).map((r) => [r.id, r]));
+    chunk.forEach((_, j) => out.push(byId[String(j)]?.status === 200 ? byId[String(j)].body : null));
+  }
+  return out;
 }
 
 // ───────── 구글 드라이브 ─────────
@@ -209,6 +236,16 @@ async function gEnsureFolder(token, parentId, name) {
   return data.id;
 }
 
+/** 현장 폴더에서 경로(segs)를 따라가 폴더 id 찾기. create=true면 없을 때 만듦, false면 없을 때 null */
+async function gResolve(token, rootId, segs, create) {
+  let id = rootId;
+  for (const name of segs) {
+    id = create ? await gEnsureFolder(token, id, name) : await gFindFolder(token, id, name);
+    if (!id) return null;
+  }
+  return id;
+}
+
 // ───────── 현장 ─────────
 
 async function getSites() {
@@ -233,33 +270,52 @@ function newCode(sites) {
 
 const byName = (a, b) => a.localeCompare(b, "ko", { numeric: true });
 
-/** 현장 폴더 목록 */
-async function listFolders(site) {
+/** 현장 폴더(또는 그 안의 경로 segs) 아래 폴더 목록 + 각 폴더의 하위 폴더 수 */
+async function listFolders(site, segs = []) {
   const token = await accessTokenFor(site.account);
+  const notFound = new HttpError(404, segs.length
+    ? "폴더를 찾을 수 없어요. 지워졌거나 이름이 바뀌었을 수 있어요"
+    : "현장 폴더를 찾을 수 없어요. 클라우드에서 지워졌는지 확인하세요");
   if (site.provider === "google") {
-    const files = await gList(token, `'${gq(site.folderId)}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, "id,name");
-    return files.map((f) => f.name).sort(byName);
+    const parent = await gResolve(token, site.folderId, segs, false);
+    if (!parent) throw notFound;
+    const files = await gList(token, `'${gq(parent)}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, "id,name");
+    const subs = {};
+    for (let i = 0; i < files.length; i += 25) {
+      const chunk = files.slice(i, i + 25);
+      const q = `(${chunk.map((f) => `'${gq(f.id)}' in parents`).join(" or ")}) and mimeType='${FOLDER_MIME}' and trashed=false`;
+      const kids = await gList(token, q, "id,parents");
+      for (const f of chunk) subs[f.name] = kids.filter((k) => (k.parents || []).includes(f.id)).length;
+    }
+    return { folders: files.map((f) => f.name).sort(byName), subs };
   }
-  const { res, data } = await graph(token, "GET", `${msRef(site)}/children?$select=name,folder&$top=999`);
+  const { res, data } = await graph(token, "GET", `${msRef(site, segs)}/children?$select=id,name,folder&$top=999`);
   if (res.status === 404) {
-    if (site.legacy) { await msEnsurePath(token, [ROOT, site.name]); return []; }
-    throw new HttpError(404, "현장 폴더를 찾을 수 없어요. 클라우드에서 지워졌는지 확인하세요");
+    if (site.legacy && !segs.length) { await msEnsurePath(token, [ROOT, site.name]); return { folders: [], subs: {} }; }
+    throw notFound;
   }
   if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
-  return (data.value || []).filter((i) => i.folder).map((i) => i.name).sort(byName);
+  const items = (data.value || []).filter((i) => i.folder);
+  const subs = {};
+  // 하위 항목이 있는 폴더만 한 번에 확인
+  const withKids = items.filter((i) => (i.folder.childCount || 0) > 0);
+  const bodies = await msBatch(token, withKids.map((i) => `/me/drive/items/${i.id}/children?$select=folder&$top=999`));
+  items.forEach((i) => { subs[i.name] = 0; });
+  withKids.forEach((i, k) => { subs[i.name] = (bodies[k]?.value || []).filter((c) => c.folder).length; });
+  return { folders: items.map((i) => i.name).sort(byName), subs };
 }
 
-async function ensureSub(site, folder) {
+async function ensureSub(site, segs) {
   const token = await accessTokenFor(site.account);
-  if (site.provider === "google") return gEnsureFolder(token, site.folderId, folder);
-  return msEnsureSub(token, site, folder);
+  if (site.provider === "google") return gResolve(token, site.folderId, segs, true);
+  return msEnsureSub(token, site, segs);
 }
 
-/** 업로드 주소 발급 (폰이 이 주소로 사진을 직접 보냄) */
+/** 업로드 주소 발급 (폰이 이 주소로 사진을 직접 보냄). folder = 경로 배열 */
 async function createUploadSession(site, folder, fileName, origin) {
   const token = await accessTokenFor(site.account);
   if (site.provider === "google") {
-    const parent = await gEnsureFolder(token, site.folderId, folder);
+    const parent = await gResolve(token, site.folderId, folder, true);
     const res = await fetch(`${DRIVE_UP}/files?uploadType=resumable&supportsAllDrives=true`, {
       method: "POST",
       headers: {
@@ -276,7 +332,7 @@ async function createUploadSession(site, folder, fileName, origin) {
     }
     return location;
   }
-  const path = `${msRef(site, [folder, fileName])}/createUploadSession`;
+  const path = `${msRef(site, [...folder, fileName])}/createUploadSession`;
   const body = { item: { "@microsoft.graph.conflictBehavior": "rename" } };
   let { res, data } = await graph(token, "POST", path, body);
   if (res.status === 404) {
@@ -291,7 +347,7 @@ async function createUploadSession(site, folder, fileName, origin) {
 async function uploadSmall(site, folder, fileName, bytes, contentType) {
   const token = await accessTokenFor(site.account);
   if (site.provider === "google") {
-    const parent = await gEnsureFolder(token, site.folderId, folder);
+    const parent = await gResolve(token, site.folderId, folder, true);
     const boundary = "fc" + randomKey(16);
     const meta = JSON.stringify({ name: fileName, parents: [parent] });
     const body = new Blob([
@@ -308,7 +364,7 @@ async function uploadSmall(site, folder, fileName, bytes, contentType) {
     if (!res.ok) throw gErr(res, await res.json().catch(() => null), "업로드 실패");
     return;
   }
-  const target = `${GRAPH}${msRef(site, [folder, fileName])}/content?@microsoft.graph.conflictBehavior=rename`;
+  const target = `${GRAPH}${msRef(site, [...folder, fileName])}/content?@microsoft.graph.conflictBehavior=rename`;
   const put = () => fetch(target, {
     method: "PUT",
     headers: { authorization: `Bearer ${token}`, "content-type": contentType },
@@ -329,7 +385,7 @@ async function uploadSmall(site, folder, fileName, bytes, contentType) {
 async function listPhotos(site, folder) {
   const token = await accessTokenFor(site.account);
   if (site.provider === "google") {
-    const parent = await gFindFolder(token, site.folderId, folder);
+    const parent = await gResolve(token, site.folderId, folder, false);
     if (!parent) return [];
     const files = await gList(token,
       `'${gq(parent)}' in parents and trashed=false and mimeType contains 'image/'`,
@@ -340,7 +396,7 @@ async function listPhotos(site, folder) {
       small: thumb(f.id, 400), large: thumb(f.id, 1600), full: thumb(f.id, 4000),
     }));
   }
-  const { res, data } = await graph(token, "GET", `${msRef(site, [folder])}/children?$top=200&$expand=thumbnails`);
+  const { res, data } = await graph(token, "GET", `${msRef(site, folder)}/children?$top=200&$expand=thumbnails`);
   if (res.status === 404) return [];
   if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
   return (data.value || [])
@@ -363,7 +419,7 @@ async function deleteFolder(site, folder) {
   const token = await accessTokenFor(site.account);
   const full = new HttpError(409, "사진이 들어 있는 폴더는 지울 수 없어요. 현장 주인이 클라우드에서 정리해 주세요");
   if (site.provider === "google") {
-    const id = await gFindFolder(token, site.folderId, folder);
+    const id = await gResolve(token, site.folderId, folder, false);
     if (!id) return;
     const inside = await gList(token, `'${gq(id)}' in parents and trashed=false`, "id");
     if (inside.length) throw full;
@@ -371,7 +427,7 @@ async function deleteFolder(site, folder) {
     if (!res.ok && res.status !== 404) throw gErr(res, data, "폴더 삭제 실패");
     return;
   }
-  const base = msRef(site, [folder]);
+  const base = msRef(site, folder);
   const { res, data } = await graph(token, "GET", `${base}/children?$top=1&$select=name`);
   if (res.status === 404) return;
   if (!res.ok) throw new HttpError(502, `OneDrive 오류: ${data?.error?.message || res.status}`);
@@ -380,8 +436,9 @@ async function deleteFolder(site, folder) {
   if (!del.res.ok && del.res.status !== 404) throw new HttpError(502, `폴더 삭제 실패: ${del.data?.error?.message || del.res.status}`);
 }
 
+/** 기본 폴더 목록 (한 줄에 하나, "상위/하위" 경로도 가능) → 경로 배열 목록 */
 function cleanFolders(list) {
-  return [...new Set((list || []).map((f) => String(f).trim()).filter(Boolean))].map((f) => cleanName(f, `폴더 이름 "${f}"`));
+  return [...new Set((list || []).map((f) => String(f).trim()).filter(Boolean))].map((f) => cleanPath(f, `폴더 "${f}"`));
 }
 
 // ───────── 현장 주인 (로그인한 사람) ─────────
@@ -645,7 +702,7 @@ export default async (req) => {
         if (Object.values(sites).some((s) => !s.account && s.name === name)) throw new HttpError(409, "같은 이름의 현장이 이미 있어요");
         const token = await accessTokenFor("legacy");
         await msEnsurePath(token, [ROOT, name]);
-        for (const folder of folders) await msEnsurePath(token, [ROOT, name, folder], 2);
+        for (const folder of folders) await msEnsurePath(token, [ROOT, name, ...folder], 2);
         const code = newCode(sites);
         sites[code] = { name, created: new Date().toISOString() };
         await store().setJSON("sites", sites);
@@ -666,27 +723,32 @@ export default async (req) => {
         return json({ code: site.code, name: site.name, provider: site.provider });
       }
 
+      // 폴더 목록: path 가 있으면 그 폴더 안의 하위 폴더 (subs = 각 폴더의 하위 폴더 수)
       case "GET folders": {
         const site = await siteByCode(url.searchParams.get("code"));
-        return json({ name: site.name, folders: await listFolders(site) });
+        const segs = optPath(url.searchParams.get("path"));
+        const { folders, subs } = await listFolders(site, segs);
+        return json({ name: site.name, path: segs.join("/"), folders, subs });
       }
 
+      // 새 폴더: parent 가 있으면 그 안에
       case "POST folders": {
         const site = await siteByCode(body.code);
-        const folder = cleanName(body.name, "폴더 이름");
-        await ensureSub(site, folder);
-        return json({ ok: true, name: folder });
+        const name = cleanName(body.name, "폴더 이름");
+        const segs = [...optPath(body.parent), name];
+        await ensureSub(site, segs);
+        return json({ ok: true, name, path: segs.join("/") });
       }
 
       case "DELETE folders": {
         const site = await siteByCode(url.searchParams.get("code"));
-        await deleteFolder(site, cleanName(url.searchParams.get("name"), "폴더 이름"));
+        await deleteFolder(site, cleanPath(url.searchParams.get("name")));
         return json({ ok: true });
       }
 
       case "GET photos": {
         const site = await siteByCode(url.searchParams.get("code"));
-        return json({ photos: await listPhotos(site, cleanName(url.searchParams.get("folder"), "폴더 이름")) });
+        return json({ photos: await listPhotos(site, cleanPath(url.searchParams.get("folder"))) });
       }
 
       // 구글 드라이브 사진 미리보기 (로그인 없이 볼 수 있게 서버가 대신 가져옴)
@@ -713,7 +775,7 @@ export default async (req) => {
 
       case "POST upload": {
         const site = await siteByCode(body.code);
-        const folder = cleanName(body.folder, "폴더 이름");
+        const folder = cleanPath(body.folder);
         const fileName = cleanName(body.fileName, "파일 이름");
         if (!IMAGE_EXT.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
         const origin = req.headers.get("origin") || "";
@@ -722,7 +784,7 @@ export default async (req) => {
 
       case "POST upload-file": {
         const site = await siteByCode(url.searchParams.get("code"));
-        const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
+        const folder = cleanPath(url.searchParams.get("folder"));
         const fileName = cleanName(url.searchParams.get("name"), "파일 이름");
         if (!IMAGE_EXT.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
         const bytes = await req.arrayBuffer();

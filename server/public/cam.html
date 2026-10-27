@@ -545,56 +545,101 @@ async function saveManyToPhotos(recs) {
 }
 
 // ───────── 화면: 현장 (폴더 목록) ─────────
-async function siteView(code) {
+const leafOf = (p) => p.split("/").pop();
+const parentOf = (p) => p.split("/").slice(0, -1).join("/");
+const hashFor = (...parts) => "#/" + parts.map(encodeURIComponent).join("/");
+
+// 간단한 선택 시트 (⋮ 메뉴)
+function choose(title, options) {
+  return new Promise((resolve) => {
+    const scrim = document.createElement("div");
+    scrim.className = "scrim";
+    scrim.innerHTML = `<div class="sheet"><h3>${esc(title)}</h3>
+      <div class="card list" style="margin-top:10px">${options.map((o, i) =>
+        `<div class="row" data-i="${i}"><span class="name"${o.danger ? ' style="color:var(--danger)"' : ""}>${esc(o.label)}</span></div>`).join("")}</div>
+      <div class="actions"><button class="btn ghost" data-x>닫기</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = (v) => { scrim.remove(); resolve(v); };
+    scrim.onclick = (e) => { if (e.target === scrim) close(null); };
+    $("[data-x]", scrim).onclick = () => close(null);
+    scrim.querySelectorAll("[data-i]").forEach((r) => { r.onclick = () => close(options[Number(r.dataset.i)].value); });
+  });
+}
+
+// path: "" = 현장 맨 위, "03 공종별 사진" = 그 폴더 안
+async function siteView(code, path = "") {
   current = null;
   const site = sites.find((s) => s.code === code);
   if (!site) return go();
-  setBar("🏗 " + site.name, { back: () => go(), action: { label: "👥 초대", fn: () => shareInvite(site) } });
-  const cacheKey = "fc_folders_" + code;
-  const render = (folders, status) => {
-    if (location.hash !== "#/s/" + encodeURIComponent(code)) return;
-    const rows = folders.map((f) => `<div class="row" data-f="${esc(f)}"><span class="name">📁 ${esc(f)}</span><button class="more" data-more="${esc(f)}">⋮</button></div>`).join("");
+  const back = () => (path ? (parentOf(path) ? go("s", code, "d", parentOf(path)) : go("s", code)) : go());
+  setBar(path ? "📂 " + leafOf(path) : "🏗 " + site.name, { back, action: { label: "👥 초대", fn: () => shareInvite(site) } });
+  const myHash = path ? hashFor("s", code, "d", path) : hashFor("s", code);
+  const full = (name) => (path ? path + "/" + name : name);
+  const cacheKey = "fc_folders_" + code + (path ? "/" + path : "");
+  const render = (folders, subs, status) => {
+    if (location.hash !== myHash) return;
+    const rows = folders.map((f) => {
+      const n = subs[f] || 0;
+      return `<div class="row" data-f="${esc(f)}" data-n="${n}"><span class="name">${n ? "📂" : "📁"} ${esc(f)}${n ? ` <span style="color:var(--muted);font-size:14px">› 하위 ${n}</span>` : ""}</span><button class="more" data-more="${esc(f)}">⋮</button></div>`;
+    }).join("");
     $("#view").innerHTML = `<div class="status">${status}</div>
-      ${folders.length ? `<div class="card list">${rows}</div>` : `<div class="empty">아직 폴더가 없어요.<br>아래 버튼으로 만들어 보세요.</div>`}
-      <div class="dock"><div class="inner"><button class="btn primary" id="newFolder">+ 새 폴더</button></div></div>`;
-    $("#newFolder").onclick = () => newFolder(site, folders);
-    document.querySelectorAll(".row[data-f]").forEach((row) => { row.onclick = () => go("s", code, "f", row.dataset.f); });
+      ${path ? `<button class="btn primary" id="shootHere" style="width:100%;margin-bottom:12px">📷 '${esc(leafOf(path))}' 폴더에서 바로 찍기</button>` : ""}
+      ${folders.length ? `<div class="card list">${rows}</div>` : `<div class="empty">${path ? "하위 폴더가 없어요.<br>위 버튼으로 이 폴더에서 찍거나<br>아래 버튼으로 하위 폴더를 만드세요." : "아직 폴더가 없어요.<br>아래 버튼으로 만들어 보세요."}</div>`}
+      <div class="dock"><div class="inner"><button class="btn primary" id="newFolder">+ ${path ? "하위 폴더" : "새 폴더"}</button></div></div>`;
+    if (path) $("#shootHere").onclick = () => go("s", code, "f", path);
+    $("#newFolder").onclick = () => newFolder(site, folders, path);
+    document.querySelectorAll(".row[data-f]").forEach((row) => {
+      row.onclick = () => (Number(row.dataset.n) > 0 ? go("s", code, "d", full(row.dataset.f)) : go("s", code, "f", full(row.dataset.f)));
+    });
     document.querySelectorAll("[data-more]").forEach((b) => {
-      b.onclick = (e) => { e.stopPropagation(); deleteFolder(site, b.dataset.more); };
+      b.onclick = async (e) => {
+        e.stopPropagation();
+        const f = full(b.dataset.more);
+        const pick = await choose(b.dataset.more, [
+          { label: "📷 이 폴더에서 찍기", value: "shoot" },
+          { label: "📂 열기 · 하위 폴더 만들기", value: "open" },
+          { label: "🗑 폴더 삭제", value: "delete", danger: true },
+        ]);
+        if (pick === "shoot") go("s", code, "f", f);
+        else if (pick === "open") go("s", code, "d", f);
+        else if (pick === "delete") deleteFolder(site, f, path);
+      };
     });
   };
-  render(store.get(cacheKey, []), "☁ 폴더 목록을 불러오는 중…");
+  const cached = store.get(cacheKey, { folders: [], subs: {} });
+  const c = Array.isArray(cached) ? { folders: cached, subs: {} } : cached;
+  render(c.folders, c.subs || {}, "☁ 폴더 목록을 불러오는 중…");
   try {
-    const r = await api("GET", "/api/folders?code=" + encodeURIComponent(code));
-    store.set(cacheKey, r.folders);
-    render(r.folders, "☁ 폴더를 누르고 찍으면 OneDrive로 자동 업로드돼요");
+    const r = await api("GET", "/api/folders?code=" + encodeURIComponent(code) + "&path=" + encodeURIComponent(path));
+    store.set(cacheKey, { folders: r.folders, subs: r.subs || {} });
+    render(r.folders, r.subs || {}, path ? `🏗 ${esc(site.name)} › ${esc(path)}` : "☁ 폴더를 누르면 촬영 화면이 열려요 (📂 = 하위 폴더 있음)");
   } catch (e) {
-    render(store.get(cacheKey, []), e.status ? `<span class="warn">⚠ ${esc(e.message)}</span>` : "⚠ 인터넷 연결이 없어 저장된 목록을 보여줘요");
+    render(c.folders, c.subs || {}, e.status ? `<span class="warn">⚠ ${esc(e.message)}</span>` : "⚠ 인터넷 연결이 없어 저장된 목록을 보여줘요");
   }
 }
 
-async function newFolder(site, folders) {
+async function newFolder(site, folders, path = "") {
   const name = await ask({
-    title: "새 폴더 (모든 참여자에게 보여요)",
-    placeholder: "예: 12 추가사진",
+    title: path ? `'${leafOf(path)}' 안에 새 폴더` : "새 폴더 (모든 참여자에게 보여요)",
+    placeholder: path ? "예: 철근, 타설" : "예: 12 추가사진",
     ok: "만들기",
     validate: async (v) => {
       const p = nameProblem(v);
       if (p) return p;
       if (folders.some((f) => f.toLowerCase() === v.toLowerCase())) return "이미 있는 폴더예요";
-      try { await api("POST", "/api/folders", { code: site.code, name: v }); return null; }
+      try { await api("POST", "/api/folders", { code: site.code, name: v, parent: path }); return null; }
       catch (e) { return e.status ? e.message : "인터넷 연결을 확인하세요"; }
     },
   });
-  if (name) go("s", site.code, "f", name);
+  if (name) go("s", site.code, "f", path ? path + "/" + name : name);
 }
 
-async function deleteFolder(site, folder) {
-  if (!confirm(`'${folder}' 폴더를 삭제할까요?\n모든 참여자의 목록에서 지워져요.\n사진이 하나라도 있는 폴더는 지울 수 없어요.`)) return;
+async function deleteFolder(site, folder, path = "") {
+  if (!confirm(`'${leafOf(folder)}' 폴더를 삭제할까요?\n모든 참여자의 목록에서 지워져요.\n사진이나 하위 폴더가 있는 폴더는 지울 수 없어요.`)) return;
   try {
     await api("DELETE", `/api/folders?code=${encodeURIComponent(site.code)}&name=${encodeURIComponent(folder)}`);
-    toast(`'${folder}' 폴더를 삭제했어요`);
-    siteView(site.code);
+    toast(`'${leafOf(folder)}' 폴더를 삭제했어요`);
+    siteView(site.code, path);
   } catch (e) {
     alert(e.status ? e.message : "인터넷 연결을 확인하세요");
   }
@@ -619,12 +664,14 @@ function folderView(code, folder) {
   if (!site) return go();
   current = { code, folder, site };
   serverPhotos = [];
-  setBar("📁 " + folder, { back: () => go("s", code) });
+  setBar("📁 " + folder.split("/").pop(), {
+    back: () => (folder.includes("/") ? go("s", code, "d", folder.split("/").slice(0, -1).join("/")) : go("s", code)),
+  });
   $("#view").innerHTML = `
     <div class="status">🏗 ${esc(site.name)} › ${esc(folder)}</div>
     <div class="section" id="localTitle" hidden>이 기기에서 올리는 중</div>
     <div class="grid" id="localGrid"></div>
-    <div class="section" id="serverTitle" style="display:flex;align-items:center">OneDrive에 올라간 사진
+    <div class="section" id="serverTitle" style="display:flex;align-items:center">클라우드에 올라간 사진
       <button id="reloadBtn" style="margin-left:auto;color:var(--accent);font-weight:700;font-size:14px;padding:6px 4px">↻ 새로고침</button></div>
     <div class="status" id="serverStatus">불러오는 중…</div>
     <div class="grid" id="serverGrid"></div>
@@ -771,6 +818,7 @@ function route() {
   const parts = (location.hash.slice(2) || "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "s" && parts[1]) {
     if (parts[2] === "f" && parts[3]) return folderView(parts[1], parts[3]);
+    if (parts[2] === "d" && parts[3]) return siteView(parts[1], parts[3]);
     return siteView(parts[1]);
   }
   if (parts[0] === "p" && parts[1]) return personalView(parts[1]);

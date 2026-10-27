@@ -6,6 +6,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
+data class FolderList(val folders: List<String>, val subs: Map<String, Int>)
+
 /** 현장 클라우드의 사진 1장 (small/large = 미리보기, full = 원본) */
 data class RemotePhoto(val name: String, val small: String?, val large: String?, val full: String?)
 
@@ -45,13 +47,19 @@ object Api {
     fun join(server: String, code: String): String =
         request("POST", "$server/api/join", JSONObject().put("code", code)).getString("name")
 
-    fun folders(server: String, code: String): List<String> {
-        val arr = request("GET", "$server/api/folders?code=${enc(code)}").getJSONArray("folders")
-        return (0 until arr.length()).map { arr.getString(it) }
+    /** 폴더 목록 (path 가 있으면 그 폴더 안) + 각 폴더의 하위 폴더 수 */
+    fun folders(server: String, code: String, path: String = ""): FolderList {
+        val json = request("GET", "$server/api/folders?code=${enc(code)}&path=${enc(path)}")
+        val arr = json.getJSONArray("folders")
+        val names = (0 until arr.length()).map { arr.getString(it) }
+        val subsJson = json.optJSONObject("subs")
+        val subs = names.associateWith { subsJson?.optInt(it, 0) ?: 0 }
+        return FolderList(names, subs)
     }
 
-    fun createFolder(server: String, code: String, name: String) {
-        request("POST", "$server/api/folders", JSONObject().put("code", code).put("name", name))
+    /** 새 폴더 (parent 가 있으면 그 안에) */
+    fun createFolder(server: String, code: String, name: String, parent: String = "") {
+        request("POST", "$server/api/folders", JSONObject().put("code", code).put("name", name).put("parent", parent))
     }
 
     /** 비어 있는 현장 폴더 삭제 (사진이 있으면 서버가 409로 거절) */

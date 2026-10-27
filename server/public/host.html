@@ -241,7 +241,7 @@ function newSite(key, provider) {
     <label>2. 사진을 모을 폴더 (${provider === "google" ? "구글 드라이브" : "OneDrive"})</label>
     <div id="pickArea"></div>
     <div class="chosen" id="chosen"></div>
-    <label>3. 기본 폴더 <span class="muted" style="font-weight:400">(고른 폴더 안에 만들어져요. 한 줄에 하나, 비워도 돼요)</span></label>
+    <label>3. 기본 폴더 <span class="muted" style="font-weight:400">(고른 폴더 안에 만들어져요. 한 줄에 하나, 비워도 돼요. 하위 폴더는 <b>03 공종별 사진/철근</b> 처럼)</span></label>
     <textarea id="subs">${DEFAULT_FOLDERS}</textarea>
     <div class="err" id="err"></div>
     <button class="btn primary" id="create">현장 만들기</button>
@@ -265,7 +265,9 @@ function newSite(key, provider) {
     if (p) { err.textContent = "현장 이름: " + p; return; }
     if (!chosen) { err.textContent = "사진을 모을 폴더를 골라 주세요"; return; }
     const folders = $("#subs", scrim).value.split("\n").map((s) => s.trim()).filter(Boolean);
-    for (const f of folders) { const q = nameProblem(f); if (q) { err.textContent = `폴더 "${f}": ${q}`; return; } }
+    for (const f of folders) for (const seg of f.split("/").map((x) => x.trim()).filter(Boolean)) {
+      const q = nameProblem(seg); if (q) { err.textContent = `폴더 "${f}": ${q}`; return; }
+    }
     const btn = $("#create", scrim);
     btn.disabled = true; btn.textContent = "만드는 중… (폴더가 많으면 몇 초 걸려요)"; err.textContent = "";
     try {
