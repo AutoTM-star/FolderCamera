@@ -12,6 +12,8 @@ import android.widget.ListView
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
@@ -36,6 +38,14 @@ class SiteActivity : AppCompatActivity() {
     private val labels = mutableListOf<String>()  // 화면에 보이는 글자
     private lateinit var adapter: FolderAdapter
 
+    // 갤러리에서 고른 사진을 올릴 폴더
+    private var pickTarget: String? = null
+    private val pickPhotos =
+        registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(50)) { uris ->
+            val target = pickTarget ?: return@registerForActivityResult
+            if (uris.isNotEmpty()) Importer.run(this, uris, site, target)
+        }
+
     private val cacheKey get() = if (path.isEmpty()) site.code else "${site.code}/$path"
     private fun full(name: String) = if (path.isEmpty()) name else "$path/$name"
 
@@ -43,6 +53,7 @@ class SiteActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         site = intent.getStringExtra(EXTRA_CODE)?.let { SiteStore.find(this, it) } ?: run { finish(); return }
         path = intent.getStringExtra(EXTRA_PATH) ?: ""
+        pickTarget = savedInstanceState?.getString(KEY_PICK)
         setContentView(R.layout.activity_site)
         title = if (path.isEmpty()) "🏗 ${site.name}" else "📂 ${path.substringAfterLast('/')}"
 
@@ -73,6 +84,16 @@ class SiteActivity : AppCompatActivity() {
         findViewById<View>(R.id.refreshButton).setOnClickListener { load() }
 
         showFolders(SiteStore.cachedFolders(this, cacheKey), emptyMap())
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_PICK, pickTarget)
+    }
+
+    private fun pickFromGallery(folderPath: String) {
+        pickTarget = folderPath
+        pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
 
     override fun onResume() {
@@ -174,6 +195,7 @@ class SiteActivity : AppCompatActivity() {
         val name = names.getOrNull(position) ?: return
         val popup = PopupMenu(this, anchor)
         popup.menu.add(0, 1, 0, "📷 이 폴더에서 찍기")
+        popup.menu.add(0, 5, 0, "🖼 갤러리 사진 올리기")
         popup.menu.add(0, 2, 1, "📂 열기 · 하위 폴더 만들기")
         popup.menu.add(0, 3, 2, "🖼 앨범 보기 (모두가 올린 사진)")
         popup.menu.add(0, 4, 3, "🗑 폴더 삭제")
@@ -183,6 +205,7 @@ class SiteActivity : AppCompatActivity() {
                 2 -> openFolder(full(name))
                 3 -> AlbumActivity.open(this, full(name), site)
                 4 -> confirmDelete(full(name))
+                5 -> pickFromGallery(full(name))
             }
             true
         }
@@ -229,6 +252,7 @@ class SiteActivity : AppCompatActivity() {
         const val EXTRA_CODE = "code"
         const val EXTRA_PATH = "path"
         private const val MENU_INVITE = 100
+        private const val KEY_PICK = "pick_target"
 
         fun open(ctx: Context, code: String, path: String = "") {
             ctx.startActivity(

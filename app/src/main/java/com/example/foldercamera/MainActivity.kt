@@ -186,7 +186,8 @@ class MainActivity : AppCompatActivity() {
         when (entry) {
             is Entry.Local -> {
                 popup.menu.add(0, 1, 0, "🖼 앨범 보기")
-                popup.menu.add(0, 2, 1, "🗑 폴더 삭제")
+                popup.menu.add(0, 4, 1, "☁ 현장 클라우드로 올리기")
+                popup.menu.add(0, 2, 2, "🗑 폴더 삭제")
             }
             is Entry.Shared -> {
                 popup.menu.add(0, 3, 0, "🚪 현장 나가기")
@@ -197,10 +198,30 @@ class MainActivity : AppCompatActivity() {
                 1 -> AlbumActivity.open(this, (entry as Entry.Local).name, null)
                 2 -> confirmDelete((entry as Entry.Local).name)
                 3 -> confirmLeave((entry as Entry.Shared).site)
+                4 -> uploadLocalFolder((entry as Entry.Local).name)
             }
             true
         }
         popup.show()
+    }
+
+    /** 내 폴더 사진 전부를 현장 클라우드 폴더로 올리기 (내 폴더 사진은 그대로 남음) */
+    private fun uploadLocalFolder(name: String) {
+        lifecycleScope.launch {
+            val photos = withContext(Dispatchers.IO) { Photos.list(this@MainActivity, Photos.relativePath(null, name)) }
+            if (photos.isEmpty()) {
+                Toast.makeText(this@MainActivity, "'$name' 폴더에 사진이 없어요", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            CloudFolderPicker.pick(this@MainActivity) { site, folder ->
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("사진 ${photos.size}장 올리기")
+                    .setMessage("'$name' 폴더의 사진 ${photos.size}장을\n🏗 ${site.name} › $folder 로 올릴까요?\n(내 폴더 사진은 그대로 남아요)")
+                    .setPositiveButton("올리기") { _, _ -> Importer.run(this@MainActivity, photos, site, folder) }
+                    .setNegativeButton("취소", null)
+                    .show()
+            }
+        }
     }
 
     private fun confirmDelete(name: String) {

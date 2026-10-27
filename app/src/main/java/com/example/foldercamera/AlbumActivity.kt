@@ -14,6 +14,8 @@ import android.widget.BaseAdapter
 import android.widget.GridView
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatImageView
 import androidx.lifecycle.lifecycleScope
@@ -41,6 +43,12 @@ class AlbumActivity : AppCompatActivity() {
     private val cloudPhotos = mutableListOf<RemotePhoto>()
     private var cloudError: String? = null
 
+    private val pickPhotos =
+        registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(50)) { uris ->
+            val currentSite = site ?: return@registerForActivityResult
+            if (uris.isNotEmpty()) Importer.run(this, uris, currentSite, folder) { load() }
+        }
+
     private val cache = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
@@ -66,6 +74,12 @@ class AlbumActivity : AppCompatActivity() {
             cloudTab.setOnClickListener { selectTab(true) }
             phoneTab.setOnClickListener { selectTab(false) }
             findViewById<View>(R.id.refreshButton).setOnClickListener { load() }
+            findViewById<View>(R.id.addPhotosButton).apply {
+                visibility = View.VISIBLE
+                setOnClickListener {
+                    pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+            }
         }
 
         grid.setOnItemClickListener { _, _, position, _ ->

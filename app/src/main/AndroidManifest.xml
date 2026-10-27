@@ -49,6 +49,24 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- 갤러리에서 [공유 → 폴더 카메라] 로 받은 사진을 현장 폴더로 올리기 -->
+        <activity
+            android:name=".ShareReceiveActivity"
+            android:exported="true"
+            android:label="현장 클라우드에 올리기"
+            android:theme="@style/Theme.FolderCamera.Translucent">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".AlbumActivity"
             android:exported="false" />

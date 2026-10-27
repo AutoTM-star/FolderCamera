@@ -504,7 +504,8 @@ function personalView(folder) {
     <div class="card banner" style="font-size:13px">⚠ 이 폴더 사진은 <b>이 기기의 웹앱 안에만</b> 있어요.
       잃어버리지 않게 <b>사진 앱에 저장</b>해 두세요.</div>
     <div class="section" style="display:flex;align-items:center"><span id="pCount">내 사진</span>
-      <button id="saveAll" style="margin-left:auto;color:var(--accent);font-weight:700;font-size:14px;padding:6px 4px" hidden>📥 모두 사진 앱에 저장</button></div>
+      <button id="toCloud" style="margin-left:auto;color:var(--accent);font-weight:700;font-size:14px;padding:6px 4px" hidden>☁ 현장으로 올리기</button>
+      <button id="saveAll" style="margin-left:10px;color:var(--accent);font-weight:700;font-size:14px;padding:6px 4px" hidden>📥 사진 앱에 저장</button></div>
     <div class="grid" id="personalGrid"></div>
     <div class="dock"><div class="inner">
       <button class="btn ghost" id="pickBtn" style="flex:0 0 30%">🖼 고르기</button>
@@ -525,6 +526,9 @@ function renderPersonal(all) {
   const saveAll = $("#saveAll");
   saveAll.hidden = mine.length === 0;
   saveAll.onclick = () => saveManyToPhotos(mine);
+  const toCloud = $("#toCloud");
+  toCloud.hidden = mine.length === 0;
+  toCloud.onclick = () => personalToCloud(mine);
   grid.innerHTML = mine.map((r, i) => {
     const src = r.thumb ? URL.createObjectURL(r.thumb) : "";
     if (src) localUrls.push(src);
@@ -533,6 +537,45 @@ function renderPersonal(all) {
   grid.querySelectorAll("[data-i]").forEach((cell) => {
     cell.onclick = () => openViewer(mine.map((r) => ({ local: r })), Number(cell.dataset.i));
   });
+}
+
+// 내 폴더 사진 → 현장 클라우드 폴더로 복사해서 올리기 (내 폴더 사진은 그대로)
+async function pickCloudFolder() {
+  if (!sites.length) { alert("참여한 현장이 없어요. 먼저 [☁ 현장 참여]로 현장에 들어가 주세요."); return null; }
+  let site = sites[0];
+  if (sites.length > 1) {
+    site = await choose("어느 현장에 올릴까요?", sites.map((x) => ({ label: "🏗 " + x.name, value: x })));
+    if (!site) return null;
+  }
+  let path = "";
+  for (;;) {
+    let r;
+    try { r = await api("GET", "/api/folders?code=" + encodeURIComponent(site.code) + "&path=" + encodeURIComponent(path)); }
+    catch (e) { alert(e.status ? e.message : "인터넷 연결을 확인하세요"); return null; }
+    const opts = [];
+    if (path) opts.push({ label: `✅ '${path.split("/").pop()}' 폴더에 올리기`, value: { done: path } });
+    for (const f of r.folders) {
+      const full = path ? path + "/" + f : f;
+      opts.push((r.subs || {})[f] > 0 ? { label: `📂 ${f} ›`, value: { into: full } } : { label: `📁 ${f}`, value: { done: full } });
+    }
+    if (!opts.length) { alert("현장에 폴더가 없어요. 먼저 폴더를 만들어 주세요."); return null; }
+    const pick = await choose(path ? "📂 " + path : `🏗 ${site.name} · 올릴 폴더`, opts);
+    if (!pick) return null;
+    if (pick.done) return { site, folder: pick.done };
+    path = pick.into;
+  }
+}
+
+async function personalToCloud(recs) {
+  const target = await pickCloudFolder();
+  if (!target) return;
+  if (!confirm(`사진 ${recs.length}장을\n🏗 ${target.site.name} › ${target.folder} 로 올릴까요?\n(내 폴더 사진은 그대로 남아요)`)) return;
+  for (const r of recs) {
+    await queue.add({ code: target.site.code, folder: target.folder, name: r.name, blob: r.blob, thumb: r.thumb, status: "pending", created: Date.now() });
+  }
+  toast(`☁ ${recs.length}장을 올리는 중이에요`);
+  refreshStatus();
+  processQueue();
 }
 
 async function saveManyToPhotos(recs) {
