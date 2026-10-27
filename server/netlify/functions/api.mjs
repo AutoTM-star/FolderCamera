@@ -1,20 +1,30 @@
 // 폴더 카메라 중계 서버
-//  - 관리자(OneDrive 주인)가 한 번 로그인하면, 그 권한은 이 서버에만 보관됨
-//  - 현장 사람들은 초대 코드만으로 "업로드 주소"를 받아 폰에서 OneDrive로 직접 업로드
+//  - 현장을 만든 사람(현장 주인)이 자기 OneDrive 또는 구글 드라이브로 로그인하면, 그 권한은 이 서버에만 보관됨
+//  - 현장 사람들은 초대 코드만으로 "업로드 주소"를 받아 폰에서 클라우드로 직접 업로드
+//  - 기존(관리자 페이지에서 만든) 현장은 관리자 OneDrive의 "폴더카메라/현장이름" 을 그대로 사용
 //
-// 필요한 환경 변수 (Netlify > Site configuration > Environment variables)
-//   MS_CLIENT_ID      Azure 앱 등록의 "애플리케이션(클라이언트) ID"
-//   MS_CLIENT_SECRET  Azure 앱 등록의 "클라이언트 암호" 값
-//   ADMIN_PASSWORD    관리자 페이지 비밀번호 (마음대로 정하기)
+// 환경 변수 (Netlify > Project configuration > Environment variables)
+//   MS_CLIENT_ID, MS_CLIENT_SECRET   Azure 앱 등록 (OneDrive)
+//   MS_AUTHORITY                      (선택) consumers=개인 계정만(기본), common=회사 계정도
+//   ADMIN_PASSWORD                    관리자 페이지 비밀번호
+//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   구글 클라우드 OAuth 클라이언트 (구글 드라이브)
+//   GOOGLE_API_KEY, GOOGLE_APP_ID     (선택) 구글 드라이브 폴더 고르기 창(Picker)용 API 키, 프로젝트 번호
 
 import { getStore } from "@netlify/blobs";
 
-const AUTH = "https://login.microsoftonline.com/consumers/oauth2/v2.0";
 const GRAPH = "https://graph.microsoft.com/v1.0";
-const SCOPE = "offline_access Files.ReadWrite User.Read";
-const ROOT = "폴더카메라"; // OneDrive 안의 최상위 폴더 이름
+const MS_SCOPE = "offline_access Files.ReadWrite User.Read";
+const msAuthUrl = (authority) => `https://login.microsoftonline.com/${authority}/oauth2/v2.0`;
+const G_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
+const G_TOKEN = "https://oauth2.googleapis.com/token";
+const G_SCOPE = "openid email profile https://www.googleapis.com/auth/drive.file";
+const DRIVE = "https://www.googleapis.com/drive/v3";
+const DRIVE_UP = "https://www.googleapis.com/upload/drive/v3";
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+const ROOT = "폴더카메라"; // 기존 현장: 관리자 OneDrive 안의 최상위 폴더 이름
 const BAD_CHARS = /[\\/:*?"<>|#%\u0000-\u001f]/;
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const IMAGE_EXT = /\.(jpe?g|png|heic|heif|webp)$/i;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -32,6 +42,14 @@ const json = (data, status = 200) =>
   });
 
 const enc = (segments) => segments.map(encodeURIComponent).join("/");
+const randomKey = (n = 32) => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  return Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => chars[b % chars.length]).join("");
+};
+async function sha(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 function cleanName(raw, what = "이름") {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");
@@ -54,67 +72,82 @@ function requireAdmin(req, url) {
   if (given !== env("ADMIN_PASSWORD")) throw new HttpError(401, "관리자 비밀번호가 틀렸어요");
 }
 
-// ───────── Microsoft 로그인 / 토큰 ─────────
+// ───────── 로그인 토큰 ─────────
 
-async function tokenRequest(params) {
+async function msToken(authority, params) {
   const body = new URLSearchParams({
     client_id: env("MS_CLIENT_ID"),
     client_secret: env("MS_CLIENT_SECRET"),
-    scope: SCOPE,
+    scope: MS_SCOPE,
     ...params,
   });
-  const res = await fetch(`${AUTH}/token`, { method: "POST", body });
+  const res = await fetch(`${msAuthUrl(authority)}/token`, { method: "POST", body });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new HttpError(502, `Microsoft 로그인 오류: ${data.error_description || data.error || res.status}`);
-  }
+  if (!res.ok) throw new HttpError(502, `Microsoft 로그인 오류: ${data.error_description || data.error || res.status}`);
   return data;
 }
 
-async function saveToken(data, extra = {}) {
-  const s = store();
-  const prev = (await s.get("auth", { type: "json" })) || {};
-  const record = {
-    ...prev,
-    ...extra,
+async function googleToken(params) {
+  const body = new URLSearchParams({
+    client_id: env("GOOGLE_CLIENT_ID"),
+    client_secret: env("GOOGLE_CLIENT_SECRET"),
+    ...params,
+  });
+  const res = await fetch(G_TOKEN, { method: "POST", body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new HttpError(502, `Google 로그인 오류: ${data.error_description || data.error || res.status}`);
+  return data;
+}
+
+// 계정: "legacy" = 관리자 페이지에서 연결한 OneDrive (예전 방식), 그 외 = 현장 주인 계정
+const acctKey = (id) => (id === "legacy" ? "auth" : `acct:${id}`);
+const getAccount = (id) => store().get(acctKey(id), { type: "json" });
+const saveAccount = (id, rec) => store().setJSON(acctKey(id), rec);
+
+async function accessTokenFor(id) {
+  const rec = await getAccount(id);
+  if (!rec?.refresh_token) {
+    throw new HttpError(503, id === "legacy"
+      ? "관리자가 아직 OneDrive를 연결하지 않았어요"
+      : "현장 주인의 클라우드 연결이 끊겼어요. 현장 주인이 다시 로그인해야 해요");
+  }
+  if (rec.access_token && rec.expires_at > Date.now()) return rec.access_token;
+  let data;
+  try {
+    data = rec.provider === "google"
+      ? await googleToken({ grant_type: "refresh_token", refresh_token: rec.refresh_token })
+      : await msToken(rec.authority || "consumers", { grant_type: "refresh_token", refresh_token: rec.refresh_token });
+  } catch (e) {
+    throw new HttpError(503, `클라우드 로그인이 만료되었어요. 현장 주인이 다시 로그인해야 해요 (${e.message})`);
+  }
+  const next = {
+    ...rec,
     access_token: data.access_token,
-    refresh_token: data.refresh_token || prev.refresh_token,
+    refresh_token: data.refresh_token || rec.refresh_token,
     expires_at: Date.now() + (Number(data.expires_in || 3600) - 300) * 1000,
   };
-  await s.setJSON("auth", record);
-  return record;
+  await saveAccount(id, next);
+  return next.access_token;
 }
 
-async function accessToken() {
-  const record = await store().get("auth", { type: "json" });
-  if (!record?.refresh_token) throw new HttpError(503, "관리자가 아직 OneDrive를 연결하지 않았어요");
-  if (record.access_token && record.expires_at > Date.now()) return record.access_token;
-  const data = await tokenRequest({ grant_type: "refresh_token", refresh_token: record.refresh_token });
-  return (await saveToken(data)).access_token;
-}
+// ───────── OneDrive (Microsoft Graph) ─────────
 
-async function graph(method, path, body, token) {
-  const auth = token || (await accessToken());
+async function graph(token, method, path, body) {
   const res = await fetch(GRAPH + path, {
     method,
-    headers: {
-      authorization: `Bearer ${auth}`,
-      ...(body ? { "content-type": "application/json" } : {}),
-    },
+    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   return { res, data };
 }
 
-/** OneDrive에 폴더 경로를 (없으면) 차례로 만듦. segments[from]부터 생성 시도 */
-async function ensureFolder(segments, from = 0) {
+/** 기존 방식: 경로로 폴더를 차례로 만듦 */
+async function msEnsurePath(token, segments, from = 0) {
   for (let i = from; i < segments.length; i++) {
     const parent = i === 0 ? "/me/drive/root" : `/me/drive/root:/${enc(segments.slice(0, i))}:`;
-    const { res, data } = await graph("POST", `${parent}/children`, {
-      name: segments[i],
-      folder: {},
-      "@microsoft.graph.conflictBehavior": "fail",
+    const { res, data } = await graph(token, "POST", `${parent}/children`, {
+      name: segments[i], folder: {}, "@microsoft.graph.conflictBehavior": "fail",
     });
     if (!res.ok && res.status !== 409) {
       throw new HttpError(502, `OneDrive 폴더를 만들 수 없어요: ${data?.error?.message || res.status}`);
@@ -122,7 +155,61 @@ async function ensureFolder(segments, from = 0) {
   }
 }
 
-// ───────── 현장(초대 코드) ─────────
+/** 현장 안의 위치를 Graph 주소로 (segs 없으면 현장 폴더 자체) */
+function msRef(site, segs = []) {
+  if (site.legacy) return `/me/drive/root:/${enc([ROOT, site.name, ...segs])}:`;
+  return segs.length ? `/me/drive/items/${site.folderId}:/${enc(segs)}:` : `/me/drive/items/${site.folderId}`;
+}
+
+async function msEnsureSub(token, site, folder) {
+  if (site.legacy) return msEnsurePath(token, [ROOT, site.name, folder]);
+  const { res, data } = await graph(token, "POST", `${msRef(site)}/children`, {
+    name: folder, folder: {}, "@microsoft.graph.conflictBehavior": "fail",
+  });
+  if (res.status === 404) throw new HttpError(404, "현장 폴더를 찾을 수 없어요. 클라우드에서 지워졌는지 확인하세요");
+  if (!res.ok && res.status !== 409) throw new HttpError(502, `OneDrive 폴더를 만들 수 없어요: ${data?.error?.message || res.status}`);
+}
+
+// ───────── 구글 드라이브 ─────────
+
+async function gapi(token, method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json; charset=UTF-8" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  return { res, data };
+}
+const gErr = (res, data, what = "구글 드라이브 오류") =>
+  new HttpError(res.status === 404 ? 404 : 502, `${what}: ${data?.error?.message || res.status}`);
+const gq = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+const ALL = "supportsAllDrives=true&includeItemsFromAllDrives=true";
+
+async function gList(token, query, fields, extra = "") {
+  const url = `${DRIVE}/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(`files(${fields})`)}&pageSize=200&${ALL}${extra}`;
+  const { res, data } = await gapi(token, "GET", url);
+  if (!res.ok) throw gErr(res, data);
+  return data.files || [];
+}
+
+async function gFindFolder(token, parentId, name) {
+  const files = await gList(token,
+    `'${gq(parentId)}' in parents and name='${gq(name)}' and mimeType='${FOLDER_MIME}' and trashed=false`, "id,name");
+  return files[0]?.id || null;
+}
+
+async function gEnsureFolder(token, parentId, name) {
+  const found = await gFindFolder(token, parentId, name);
+  if (found) return found;
+  const { res, data } = await gapi(token, "POST", `${DRIVE}/files?fields=id&supportsAllDrives=true`, {
+    name, mimeType: FOLDER_MIME, parents: [parentId],
+  });
+  if (!res.ok) throw gErr(res, data, "구글 드라이브 폴더를 만들 수 없어요");
+  return data.id;
+}
+
+// ───────── 현장 ─────────
 
 async function getSites() {
   return (await store().get("sites", { type: "json" })) || {};
@@ -132,40 +219,208 @@ async function siteByCode(rawCode) {
   const code = String(rawCode ?? "").trim().toUpperCase();
   const site = (await getSites())[code];
   if (!site) throw new HttpError(404, "초대 코드가 올바르지 않거나 삭제된 현장이에요");
+  if (!site.account) return { code, ...site, provider: "ms", account: "legacy", legacy: true };
   return { code, ...site };
 }
 
-function newCode() {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  return Array.from(bytes, (b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
+function newCode(sites) {
+  let code;
+  do {
+    code = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
+  } while (sites[code]);
+  return code;
 }
 
+const byName = (a, b) => a.localeCompare(b, "ko", { numeric: true });
+
+/** 현장 폴더 목록 */
 async function listFolders(site) {
-  const path = `/me/drive/root:/${enc([ROOT, site.name])}:/children?$select=name,folder&$top=999`;
-  const { res, data } = await graph("GET", path);
+  const token = await accessTokenFor(site.account);
+  if (site.provider === "google") {
+    const files = await gList(token, `'${gq(site.folderId)}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`, "id,name");
+    return files.map((f) => f.name).sort(byName);
+  }
+  const { res, data } = await graph(token, "GET", `${msRef(site)}/children?$select=name,folder&$top=999`);
   if (res.status === 404) {
-    await ensureFolder([ROOT, site.name]);
-    return [];
+    if (site.legacy) { await msEnsurePath(token, [ROOT, site.name]); return []; }
+    throw new HttpError(404, "현장 폴더를 찾을 수 없어요. 클라우드에서 지워졌는지 확인하세요");
   }
   if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
-  return (data.value || [])
-    .filter((item) => item.folder)
-    .map((item) => item.name)
-    .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+  return (data.value || []).filter((i) => i.folder).map((i) => i.name).sort(byName);
 }
 
-async function createUploadSession(site, folder, fileName) {
-  const path = `/me/drive/root:/${enc([ROOT, site.name, folder, fileName])}:/createUploadSession`;
+async function ensureSub(site, folder) {
+  const token = await accessTokenFor(site.account);
+  if (site.provider === "google") return gEnsureFolder(token, site.folderId, folder);
+  return msEnsureSub(token, site, folder);
+}
+
+/** 업로드 주소 발급 (폰이 이 주소로 사진을 직접 보냄) */
+async function createUploadSession(site, folder, fileName, origin) {
+  const token = await accessTokenFor(site.account);
+  if (site.provider === "google") {
+    const parent = await gEnsureFolder(token, site.folderId, folder);
+    const res = await fetch(`${DRIVE_UP}/files?uploadType=resumable&supportsAllDrives=true`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json; charset=UTF-8",
+        ...(origin ? { origin } : {}),     // 브라우저(웹앱)에서 바로 올릴 수 있게
+      },
+      body: JSON.stringify({ name: fileName, parents: [parent] }),
+    });
+    const location = res.headers.get("location");
+    if (!res.ok || !location) {
+      const data = await res.json().catch(() => null);
+      throw gErr(res, data, "업로드 준비 실패");
+    }
+    return location;
+  }
+  const path = `${msRef(site, [folder, fileName])}/createUploadSession`;
   const body = { item: { "@microsoft.graph.conflictBehavior": "rename" } };
-  let { res, data } = await graph("POST", path, body);
+  let { res, data } = await graph(token, "POST", path, body);
   if (res.status === 404) {
-    await ensureFolder([ROOT, site.name, folder]);
-    ({ res, data } = await graph("POST", path, body));
+    await msEnsureSub(token, site, folder);
+    ({ res, data } = await graph(token, "POST", path, body));
   }
-  if (!res.ok || !data?.uploadUrl) {
-    throw new HttpError(502, `업로드 준비 실패: ${data?.error?.message || res.status}`);
-  }
+  if (!res.ok || !data?.uploadUrl) throw new HttpError(502, `업로드 준비 실패: ${data?.error?.message || res.status}`);
   return data.uploadUrl;
+}
+
+/** 서버를 거쳐 작은 사진 올리기 (브라우저가 직접 못 올릴 때) */
+async function uploadSmall(site, folder, fileName, bytes, contentType) {
+  const token = await accessTokenFor(site.account);
+  if (site.provider === "google") {
+    const parent = await gEnsureFolder(token, site.folderId, folder);
+    const boundary = "fc" + randomKey(16);
+    const meta = JSON.stringify({ name: fileName, parents: [parent] });
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`,
+      `--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
+      bytes,
+      `\r\n--${boundary}--`,
+    ]);
+    const res = await fetch(`${DRIVE_UP}/files?uploadType=multipart&supportsAllDrives=true`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    if (!res.ok) throw gErr(res, await res.json().catch(() => null), "업로드 실패");
+    return;
+  }
+  const target = `${GRAPH}${msRef(site, [folder, fileName])}/content?@microsoft.graph.conflictBehavior=rename`;
+  const put = () => fetch(target, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, "content-type": contentType },
+    body: bytes,
+  });
+  let res = await put();
+  if (res.status === 404) {
+    await msEnsureSub(token, site, folder);
+    res = await put();
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new HttpError(502, `업로드 실패: ${data?.error?.message || res.status}`);
+  }
+}
+
+/** 폴더 안 사진 목록 (모든 참여자가 올린 것) */
+async function listPhotos(site, folder) {
+  const token = await accessTokenFor(site.account);
+  if (site.provider === "google") {
+    const parent = await gFindFolder(token, site.folderId, folder);
+    if (!parent) return [];
+    const files = await gList(token,
+      `'${gq(parent)}' in parents and trashed=false and mimeType contains 'image/'`,
+      "id,name,createdTime", "&orderBy=createdTime desc");
+    const thumb = (id, s) => `/api/gthumb?code=${encodeURIComponent(site.code)}&id=${encodeURIComponent(id)}&s=${s}`;
+    return files.map((f) => ({
+      name: f.name, created: f.createdTime,
+      small: thumb(f.id, 400), large: thumb(f.id, 1600), full: thumb(f.id, 4000),
+    }));
+  }
+  const { res, data } = await graph(token, "GET", `${msRef(site, [folder])}/children?$top=200&$expand=thumbnails`);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
+  return (data.value || [])
+    .filter((item) => item.file)
+    .map((item) => {
+      const t = (item.thumbnails || [])[0] || {};
+      return {
+        name: item.name,
+        created: item.createdDateTime,
+        small: t.medium?.url || t.small?.url || null,
+        large: t.large?.url || null,
+        full: item["@microsoft.graph.downloadUrl"] || null,
+      };
+    })
+    .sort((a, b) => String(b.created).localeCompare(String(a.created)));
+}
+
+/** 빈 폴더만 삭제 (다른 사람 사진 보호) */
+async function deleteFolder(site, folder) {
+  const token = await accessTokenFor(site.account);
+  const full = new HttpError(409, "사진이 들어 있는 폴더는 지울 수 없어요. 현장 주인이 클라우드에서 정리해 주세요");
+  if (site.provider === "google") {
+    const id = await gFindFolder(token, site.folderId, folder);
+    if (!id) return;
+    const inside = await gList(token, `'${gq(id)}' in parents and trashed=false`, "id");
+    if (inside.length) throw full;
+    const { res, data } = await gapi(token, "DELETE", `${DRIVE}/files/${encodeURIComponent(id)}?supportsAllDrives=true`);
+    if (!res.ok && res.status !== 404) throw gErr(res, data, "폴더 삭제 실패");
+    return;
+  }
+  const base = msRef(site, [folder]);
+  const { res, data } = await graph(token, "GET", `${base}/children?$top=1&$select=name`);
+  if (res.status === 404) return;
+  if (!res.ok) throw new HttpError(502, `OneDrive 오류: ${data?.error?.message || res.status}`);
+  if ((data.value || []).length > 0) throw full;
+  const del = await graph(token, "DELETE", base);
+  if (!del.res.ok && del.res.status !== 404) throw new HttpError(502, `폴더 삭제 실패: ${del.data?.error?.message || del.res.status}`);
+}
+
+function cleanFolders(list) {
+  return [...new Set((list || []).map((f) => String(f).trim()).filter(Boolean))].map((f) => cleanName(f, `폴더 이름 "${f}"`));
+}
+
+// ───────── 현장 주인 (로그인한 사람) ─────────
+
+async function ownerAccount(req) {
+  const key = req.headers.get("x-owner-key") || "";
+  if (!key) throw new HttpError(401, "로그인이 필요해요");
+  const id = await store().get(`owner:${await sha(key)}`, { type: "text" });
+  const acct = id && (await getAccount(id));
+  if (!acct) throw new HttpError(401, "로그인 정보가 만료되었어요. 다시 로그인하세요");
+  return { id, acct };
+}
+
+async function finishLogin(provider, tokenData, profile, ret, origin) {
+  const userId = String(profile.id || profile.email);
+  const id = `${provider}_${(await sha(`${provider}:${userId}`)).slice(0, 20)}`;
+  const prev = (await getAccount(id)) || {};
+  const ownerKey = randomKey(32);
+  await saveAccount(id, {
+    ...prev,
+    provider,
+    authority: provider === "ms" ? (process.env.MS_AUTHORITY || "consumers") : undefined,
+    email: profile.email || prev.email || "",
+    name: profile.name || prev.name || "",
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token || prev.refresh_token,
+    expires_at: Date.now() + (Number(tokenData.expires_in || 3600) - 300) * 1000,
+    connected_at: new Date().toISOString(),
+  });
+  await store().set(`owner:${await sha(ownerKey)}`, id);
+  const back = ret && ret.startsWith("/") && !ret.startsWith("//") ? ret : "/host";
+  return Response.redirect(`${origin}${back}#key=${ownerKey}`, 302);
+}
+
+function loginError(message, status = 400) {
+  return new Response(
+    `<meta charset="utf-8"><meta name="viewport" content="width=device-width"><p style="font:16px sans-serif;padding:24px">${String(message).replace(/</g, "&lt;")}</p><p style="padding:0 24px;font:16px sans-serif"><a href="/host">돌아가기</a></p>`,
+    { status, headers: { "content-type": "text/html; charset=utf-8" } }
+  );
 }
 
 // ───────── 요청 처리 ─────────
@@ -173,79 +428,230 @@ async function createUploadSession(site, folder, fileName) {
 export default async (req) => {
   const url = new URL(req.url);
   const route = url.pathname.replace(/^\/api\/?/, "").replace(/\/+$/, "");
-  const redirectUri = `${url.origin}/api/callback`;
+  const msRedirect = `${url.origin}/api/callback`;
+  const gRedirect = `${url.origin}/api/callback/google`;
 
   try {
     const body = req.method === "POST" && route !== "upload-file" ? await req.json().catch(() => ({})) : {};
 
     switch (`${req.method} ${route}`) {
-      // 관리자: OneDrive 연결 시작
-      case "GET login": {
-        requireAdmin(req, url);
-        const state = crypto.randomUUID();
-        await store().setJSON("oauth_state", { state, at: Date.now() });
-        const q = new URLSearchParams({
-          client_id: env("MS_CLIENT_ID"),
-          response_type: "code",
-          redirect_uri: redirectUri,
-          response_mode: "query",
-          scope: SCOPE,
-          state,
-          prompt: "select_account",
+      // ── 로그인 (현장 주인) ──
+      case "GET config":
+        return json({
+          ms: Boolean(process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET),
+          msWork: (process.env.MS_AUTHORITY || "consumers") !== "consumers",
+          google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+          googlePicker: Boolean(process.env.GOOGLE_API_KEY && process.env.GOOGLE_APP_ID),
         });
-        return Response.redirect(`${AUTH}/authorize?${q}`, 302);
+
+      case "GET auth/start": {
+        const provider = url.searchParams.get("provider") === "google" ? "google" : "ms";
+        const state = randomKey(24);
+        await store().setJSON(`oauth:${state}`, { provider, at: Date.now(), ret: url.searchParams.get("return") || "/host" });
+        if (provider === "google") {
+          const q = new URLSearchParams({
+            client_id: env("GOOGLE_CLIENT_ID"), redirect_uri: gRedirect, response_type: "code",
+            scope: G_SCOPE, access_type: "offline", prompt: "consent select_account",
+            include_granted_scopes: "true", state,
+          });
+          return Response.redirect(`${G_AUTH}?${q}`, 302);
+        }
+        const q = new URLSearchParams({
+          client_id: env("MS_CLIENT_ID"), response_type: "code", redirect_uri: msRedirect,
+          response_mode: "query", scope: MS_SCOPE, state, prompt: "select_account",
+        });
+        return Response.redirect(`${msAuthUrl(process.env.MS_AUTHORITY || "consumers")}/authorize?${q}`, 302);
       }
 
-      // Microsoft 로그인 후 돌아오는 곳
+      // Microsoft 로그인 후 돌아오는 곳 (관리자 연결 + 현장 주인 로그인 공용)
       case "GET callback": {
         const error = url.searchParams.get("error_description") || url.searchParams.get("error");
         if (error) throw new HttpError(400, `Microsoft 로그인이 취소되었거나 실패했어요: ${error}`);
+        const state = url.searchParams.get("state") || "";
+        const hostState = state && (await store().get(`oauth:${state}`, { type: "json" }));
+        if (hostState) {
+          await store().delete(`oauth:${state}`);
+          if (Date.now() - hostState.at > 15 * 60 * 1000) throw new HttpError(400, "로그인 요청이 만료되었어요. 다시 시도하세요");
+          const authority = process.env.MS_AUTHORITY || "consumers";
+          const data = await msToken(authority, { grant_type: "authorization_code", code: url.searchParams.get("code"), redirect_uri: msRedirect });
+          const me = await graph(data.access_token, "GET", "/me?$select=id,displayName,mail,userPrincipalName");
+          return finishLogin("ms", data, {
+            id: me.data?.id, email: me.data?.mail || me.data?.userPrincipalName || "", name: me.data?.displayName || "",
+          }, hostState.ret, url.origin);
+        }
+        // 관리자 페이지에서 시작한 예전 방식 연결
         const saved = await store().get("oauth_state", { type: "json" });
-        if (!saved || saved.state !== url.searchParams.get("state") || Date.now() - saved.at > 15 * 60 * 1000) {
-          throw new HttpError(400, "로그인 요청이 만료되었어요. 관리자 페이지에서 다시 시도하세요");
+        if (!saved || saved.state !== state || Date.now() - saved.at > 15 * 60 * 1000) {
+          throw new HttpError(400, "로그인 요청이 만료되었어요. 다시 시도하세요");
         }
         await store().delete("oauth_state");
-        const data = await tokenRequest({
-          grant_type: "authorization_code",
-          code: url.searchParams.get("code"),
-          redirect_uri: redirectUri,
+        const data = await msToken("consumers", { grant_type: "authorization_code", code: url.searchParams.get("code"), redirect_uri: msRedirect });
+        const me = await graph(data.access_token, "GET", "/me?$select=displayName,userPrincipalName,mail");
+        const prev = (await getAccount("legacy")) || {};
+        await saveAccount("legacy", {
+          ...prev, provider: "ms", authority: "consumers",
+          account: me.data?.mail || me.data?.userPrincipalName || me.data?.displayName || "Microsoft 계정",
+          connected_at: new Date().toISOString(),
+          access_token: data.access_token, refresh_token: data.refresh_token || prev.refresh_token,
+          expires_at: Date.now() + (Number(data.expires_in || 3600) - 300) * 1000,
         });
-        const me = await graph("GET", "/me?$select=displayName,userPrincipalName,mail", null, data.access_token);
-        const account = me.data?.mail || me.data?.userPrincipalName || me.data?.displayName || "Microsoft 계정";
-        await saveToken(data, { account, connected_at: new Date().toISOString() });
-        await ensureFolder([ROOT]);
+        await msEnsurePath(data.access_token, [ROOT]);
         return Response.redirect(`${url.origin}/?connected=1`, 302);
       }
 
-      // 관리자: 상태 + 현장 목록
+      case "GET callback/google": {
+        const error = url.searchParams.get("error");
+        if (error) throw new HttpError(400, `Google 로그인이 취소되었거나 실패했어요: ${error}`);
+        const state = url.searchParams.get("state") || "";
+        const hostState = state && (await store().get(`oauth:${state}`, { type: "json" }));
+        if (!hostState || Date.now() - hostState.at > 15 * 60 * 1000) throw new HttpError(400, "로그인 요청이 만료되었어요. 다시 시도하세요");
+        await store().delete(`oauth:${state}`);
+        const data = await googleToken({ grant_type: "authorization_code", code: url.searchParams.get("code"), redirect_uri: gRedirect });
+        const info = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+          headers: { authorization: `Bearer ${data.access_token}` },
+        }).then((r) => r.json()).catch(() => ({}));
+        return finishLogin("google", data, { id: info.sub, email: info.email, name: info.name }, hostState.ret, url.origin);
+      }
+
+      // ── 현장 주인 관리 ──
+      case "GET host/me": {
+        const { id, acct } = await ownerAccount(req);
+        const sites = Object.entries(await getSites())
+          .filter(([, s]) => s.account === id)
+          .map(([code, s]) => ({ code, name: s.name, folderPath: s.folderPath, created: s.created }))
+          .sort((a, b) => byName(a.name, b.name));
+        return json({ provider: acct.provider, email: acct.email, name: acct.name, sites });
+      }
+
+      // OneDrive 폴더 둘러보기 (폴더 고르기용)
+      case "GET host/browse": {
+        const { id, acct } = await ownerAccount(req);
+        if (acct.provider !== "ms") throw new HttpError(400, "OneDrive 계정에서만 쓸 수 있어요");
+        const token = await accessTokenFor(id);
+        const itemId = url.searchParams.get("id");
+        const base = itemId ? `/me/drive/items/${encodeURIComponent(itemId)}` : "/me/drive/root";
+        const item = await graph(token, "GET", `${base}?$select=id,name,parentReference,root`);
+        if (!item.res.ok) throw new HttpError(item.res.status === 404 ? 404 : 502, `OneDrive 오류: ${item.data?.error?.message || item.res.status}`);
+        const kids = await graph(token, "GET", `${base}/children?$select=id,name,folder&$top=500`);
+        if (!kids.res.ok) throw new HttpError(502, `OneDrive 오류: ${kids.data?.error?.message || kids.res.status}`);
+        const parentPath = (item.data.parentReference?.path || "").replace(/^\/drive\/root:?/, "");
+        const isRoot = Boolean(item.data.root) || !itemId;
+        return json({
+          id: item.data.id,
+          name: isRoot ? "내 OneDrive" : item.data.name,
+          path: isRoot ? "/" : `${decodeURIComponent(parentPath)}/${item.data.name}`,
+          parentId: isRoot ? null : item.data.parentReference?.id || null,
+          folders: (kids.data.value || []).filter((k) => k.folder).map((k) => ({ id: k.id, name: k.name })).sort((a, b) => byName(a.name, b.name)),
+        });
+      }
+
+      // 새 폴더 만들기 (OneDrive: 지금 보는 폴더 안 / 구글: 내 드라이브 맨 위)
+      case "POST host/mkdir": {
+        const { id, acct } = await ownerAccount(req);
+        const name = cleanName(body.name, "폴더 이름");
+        const token = await accessTokenFor(id);
+        if (acct.provider === "google") {
+          const { res, data } = await gapi(token, "POST", `${DRIVE}/files?fields=id,name&supportsAllDrives=true`, {
+            name, mimeType: FOLDER_MIME, parents: [body.parentId || "root"],
+          });
+          if (!res.ok) throw gErr(res, data, "폴더를 만들 수 없어요");
+          return json({ id: data.id, name: data.name, path: `/${data.name}` });
+        }
+        const parent = body.parentId ? `/me/drive/items/${encodeURIComponent(body.parentId)}` : "/me/drive/root";
+        const { res, data } = await graph(token, "POST", `${parent}/children`, {
+          name, folder: {}, "@microsoft.graph.conflictBehavior": "fail",
+        });
+        if (res.status === 409) throw new HttpError(409, "같은 이름의 폴더가 이미 있어요");
+        if (!res.ok) throw new HttpError(502, `폴더를 만들 수 없어요: ${data?.error?.message || res.status}`);
+        return json({ id: data.id, name: data.name });
+      }
+
+      // 구글 드라이브 폴더 고르기 창(Picker)용 정보
+      case "GET host/gpicker": {
+        const { id, acct } = await ownerAccount(req);
+        if (acct.provider !== "google") throw new HttpError(400, "구글 계정에서만 쓸 수 있어요");
+        return json({
+          accessToken: await accessTokenFor(id),
+          apiKey: env("GOOGLE_API_KEY"),
+          appId: env("GOOGLE_APP_ID"),
+        });
+      }
+
+      case "POST host/sites": {
+        const { id, acct } = await ownerAccount(req);
+        const name = cleanName(body.name, "현장 이름");
+        const folders = cleanFolders(body.folders);
+        const folderId = String(body.folderId || "").trim();
+        if (!folderId) throw new HttpError(400, "사진을 모을 폴더를 고르세요");
+        const token = await accessTokenFor(id);
+        // 고른 폴더에 접근 가능한지 확인
+        if (acct.provider === "google") {
+          const { res, data } = await gapi(token, "GET", `${DRIVE}/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType&supportsAllDrives=true`);
+          if (!res.ok || data?.mimeType !== FOLDER_MIME) throw new HttpError(400, "고른 폴더에 접근할 수 없어요. 폴더를 다시 골라 주세요");
+        } else {
+          const { res, data } = await graph(token, "GET", `/me/drive/items/${encodeURIComponent(folderId)}?$select=id,folder`);
+          if (!res.ok || !data?.folder) throw new HttpError(400, "고른 폴더에 접근할 수 없어요. 폴더를 다시 골라 주세요");
+        }
+        const sites = await getSites();
+        const code = newCode(sites);
+        const site = {
+          name, provider: acct.provider, account: id, folderId,
+          folderPath: String(body.folderPath || "").slice(0, 300),
+          created: new Date().toISOString(),
+        };
+        for (const f of folders) await ensureSub({ code, ...site }, f);
+        sites[code] = site;
+        await store().setJSON("sites", sites);
+        return json({ code, name });
+      }
+
+      case "DELETE host/sites": {
+        const { id } = await ownerAccount(req);
+        const code = String(url.searchParams.get("code") || "").toUpperCase();
+        const sites = await getSites();
+        if (!sites[code] || sites[code].account !== id) throw new HttpError(404, "내 현장이 아니에요");
+        delete sites[code];
+        await store().setJSON("sites", sites);
+        return json({ ok: true });
+      }
+
+      // ── 관리자 페이지 (예전 방식) ──
+      case "GET login": {
+        requireAdmin(req, url);
+        const state = randomKey(24);
+        await store().setJSON("oauth_state", { state, at: Date.now() });
+        const q = new URLSearchParams({
+          client_id: env("MS_CLIENT_ID"), response_type: "code", redirect_uri: msRedirect,
+          response_mode: "query", scope: MS_SCOPE, state, prompt: "select_account",
+        });
+        return Response.redirect(`${msAuthUrl("consumers")}/authorize?${q}`, 302);
+      }
+
       case "GET admin/status": {
         requireAdmin(req, url);
-        const auth = await store().get("auth", { type: "json" });
+        const auth = await getAccount("legacy");
         const sites = Object.entries(await getSites())
+          .filter(([, s]) => !s.account)
           .map(([code, s]) => ({ code, ...s }))
-          .sort((a, b) => a.name.localeCompare(b.name, "ko", { numeric: true }));
+          .sort((a, b) => byName(a.name, b.name));
         return json({ connected: Boolean(auth?.refresh_token), account: auth?.account || null, root: ROOT, sites });
       }
 
-      // 관리자: 현장 만들기 (+ 기본 폴더)
       case "POST admin/sites": {
         requireAdmin(req, url);
         const name = cleanName(body.name, "현장 이름");
-        const folders = [...new Set((body.folders || []).map((f) => String(f).trim()).filter(Boolean))].map((f) =>
-          cleanName(f, `폴더 이름 "${f}"`)
-        );
+        const folders = cleanFolders(body.folders);
         const sites = await getSites();
-        if (Object.values(sites).some((s) => s.name === name)) throw new HttpError(409, "같은 이름의 현장이 이미 있어요");
-        await ensureFolder([ROOT, name]);
-        for (const folder of folders) await ensureFolder([ROOT, name, folder], 2);
-        let code = newCode();
-        while (sites[code]) code = newCode();
+        if (Object.values(sites).some((s) => !s.account && s.name === name)) throw new HttpError(409, "같은 이름의 현장이 이미 있어요");
+        const token = await accessTokenFor("legacy");
+        await msEnsurePath(token, [ROOT, name]);
+        for (const folder of folders) await msEnsurePath(token, [ROOT, name, folder], 2);
+        const code = newCode(sites);
         sites[code] = { name, created: new Date().toISOString() };
         await store().setJSON("sites", sites);
         return json({ code, name });
       }
 
-      // 관리자: 현장 삭제 (초대 코드만 막음, OneDrive 사진은 그대로)
       case "DELETE admin/sites": {
         requireAdmin(req, url);
         const sites = await getSites();
@@ -254,110 +660,76 @@ export default async (req) => {
         return json({ ok: true });
       }
 
-      // 앱: 초대 코드 확인
+      // ── 앱 / 웹앱 ──
       case "POST join": {
         const site = await siteByCode(body.code);
-        return json({ code: site.code, name: site.name });
+        return json({ code: site.code, name: site.name, provider: site.provider });
       }
 
-      // 앱: 현장 폴더 목록
       case "GET folders": {
         const site = await siteByCode(url.searchParams.get("code"));
         return json({ name: site.name, folders: await listFolders(site) });
       }
 
-      // 앱: 현장에 새 폴더
       case "POST folders": {
         const site = await siteByCode(body.code);
         const folder = cleanName(body.name, "폴더 이름");
-        await ensureFolder([ROOT, site.name, folder]);
+        await ensureSub(site, folder);
         return json({ ok: true, name: folder });
       }
 
-      // 웹앱: 폴더 안 사진 목록 (모든 참여자가 올린 사진, 미리보기 주소 포함)
-      case "GET photos": {
-        const site = await siteByCode(url.searchParams.get("code"));
-        const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
-        const path =
-          `/me/drive/root:/${enc([ROOT, site.name, folder])}:/children` +
-          `?$top=200&$expand=thumbnails`;
-        const { res, data } = await graph("GET", path);
-        if (res.status === 404) return json({ photos: [] });
-        if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
-        const photos = (data.value || [])
-          .filter((item) => item.file)
-          .map((item) => {
-            const t = (item.thumbnails || [])[0] || {};
-            return {
-              name: item.name,
-              created: item.createdDateTime,
-              small: t.medium?.url || t.small?.url || null,
-              large: t.large?.url || null,
-              full: item["@microsoft.graph.downloadUrl"] || null,
-            };
-          })
-          .sort((a, b) => String(b.created).localeCompare(String(a.created)));
-        return json({ photos });
-      }
-
-      // 웹앱: 브라우저가 OneDrive로 직접 못 올릴 때 서버를 거쳐 올리기 (최대 약 5MB)
-      case "POST upload-file": {
-        const site = await siteByCode(url.searchParams.get("code"));
-        const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
-        const fileName = cleanName(url.searchParams.get("name"), "파일 이름");
-        if (!/\.(jpe?g|png|heic|heif|webp)$/i.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
-        const bytes = await req.arrayBuffer();
-        if (!bytes.byteLength) throw new HttpError(400, "빈 파일이에요");
-        if (bytes.byteLength > 5.5 * 1024 * 1024) throw new HttpError(413, "사진이 너무 커요");
-        const target =
-          `${GRAPH}/me/drive/root:/${enc([ROOT, site.name, folder, fileName])}:/content` +
-          `?@microsoft.graph.conflictBehavior=rename`;
-        const put = async () =>
-          fetch(target, {
-            method: "PUT",
-            headers: {
-              authorization: `Bearer ${await accessToken()}`,
-              "content-type": req.headers.get("content-type") || "image/jpeg",
-            },
-            body: bytes,
-          });
-        let res = await put();
-        if (res.status === 404) {
-          await ensureFolder([ROOT, site.name, folder]);
-          res = await put();
-        }
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new HttpError(502, `업로드 실패: ${data?.error?.message || res.status}`);
-        }
-        return json({ ok: true });
-      }
-
-      // 앱: 현장 폴더 삭제 (비어 있는 폴더만 — 다른 사람 사진 보호)
       case "DELETE folders": {
         const site = await siteByCode(url.searchParams.get("code"));
-        const folder = cleanName(url.searchParams.get("name"), "폴더 이름");
-        const base = `/me/drive/root:/${enc([ROOT, site.name, folder])}:`;
-        const { res, data } = await graph("GET", `${base}/children?$top=1&$select=name`);
-        if (res.status === 404) return json({ ok: true });
-        if (!res.ok) throw new HttpError(502, `OneDrive 오류: ${data?.error?.message || res.status}`);
-        if ((data.value || []).length > 0) {
-          throw new HttpError(409, "사진이 들어 있는 폴더는 지울 수 없어요. 관리자가 OneDrive에서 정리해 주세요");
-        }
-        const del = await graph("DELETE", base);
-        if (!del.res.ok && del.res.status !== 404) {
-          throw new HttpError(502, `폴더 삭제 실패: ${del.data?.error?.message || del.res.status}`);
-        }
+        await deleteFolder(site, cleanName(url.searchParams.get("name"), "폴더 이름"));
         return json({ ok: true });
       }
 
-      // 앱: 사진 업로드 주소 발급 (사진은 폰 → OneDrive로 직접 전송됨)
+      case "GET photos": {
+        const site = await siteByCode(url.searchParams.get("code"));
+        return json({ photos: await listPhotos(site, cleanName(url.searchParams.get("folder"), "폴더 이름")) });
+      }
+
+      // 구글 드라이브 사진 미리보기 (로그인 없이 볼 수 있게 서버가 대신 가져옴)
+      case "GET gthumb": {
+        const site = await siteByCode(url.searchParams.get("code"));
+        if (site.provider !== "google") throw new HttpError(400, "구글 드라이브 현장이 아니에요");
+        const size = Math.min(4000, Math.max(100, Number(url.searchParams.get("s")) || 400));
+        const token = await accessTokenFor(site.account);
+        const fileId = encodeURIComponent(url.searchParams.get("id") || "");
+        const meta = await gapi(token, "GET", `${DRIVE}/files/${fileId}?fields=thumbnailLink,mimeType&supportsAllDrives=true`);
+        if (!meta.res.ok) throw gErr(meta.res, meta.data);
+        let img;
+        if (meta.data.thumbnailLink) {
+          img = await fetch(meta.data.thumbnailLink.replace(/=s\d+$/, `=s${size}`), { headers: { authorization: `Bearer ${token}` } });
+        }
+        if (!img || !img.ok) {
+          img = await fetch(`${DRIVE}/files/${fileId}?alt=media&supportsAllDrives=true`, { headers: { authorization: `Bearer ${token}` } });
+        }
+        if (!img.ok) throw new HttpError(502, "사진을 불러올 수 없어요");
+        return new Response(await img.arrayBuffer(), {
+          headers: { "content-type": img.headers.get("content-type") || "image/jpeg", "cache-control": "private, max-age=3600" },
+        });
+      }
+
       case "POST upload": {
         const site = await siteByCode(body.code);
         const folder = cleanName(body.folder, "폴더 이름");
         const fileName = cleanName(body.fileName, "파일 이름");
-        if (!/\.(jpe?g|png|heic|heif|webp)$/i.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
-        return json({ uploadUrl: await createUploadSession(site, folder, fileName) });
+        if (!IMAGE_EXT.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
+        const origin = req.headers.get("origin") || "";
+        return json({ uploadUrl: await createUploadSession(site, folder, fileName, origin) });
+      }
+
+      case "POST upload-file": {
+        const site = await siteByCode(url.searchParams.get("code"));
+        const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
+        const fileName = cleanName(url.searchParams.get("name"), "파일 이름");
+        if (!IMAGE_EXT.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
+        const bytes = await req.arrayBuffer();
+        if (!bytes.byteLength) throw new HttpError(400, "빈 파일이에요");
+        if (bytes.byteLength > 5.5 * 1024 * 1024) throw new HttpError(413, "사진이 너무 커요");
+        await uploadSmall(site, folder, fileName, bytes, req.headers.get("content-type") || "image/jpeg");
+        return json({ ok: true });
       }
 
       default:
@@ -366,14 +738,7 @@ export default async (req) => {
   } catch (e) {
     const status = e.status || 500;
     if (status >= 500) console.error(e);
-    if (route === "callback") {
-      return new Response(
-        `<meta charset="utf-8"><meta name="viewport" content="width=device-width"><p style="font:16px sans-serif;padding:24px">${String(
-          e.message
-        ).replace(/</g, "&lt;")}</p><p style="padding:0 24px"><a href="/">관리자 페이지로</a></p>`,
-        { status, headers: { "content-type": "text/html; charset=utf-8" } }
-      );
-    }
+    if (route.startsWith("callback") || route === "auth/start") return loginError(e.message, status);
     return json({ error: e.message || "서버 오류" }, status);
   }
 };

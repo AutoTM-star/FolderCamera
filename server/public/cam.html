@@ -428,6 +428,7 @@ function homeView() {
     <div class="section">☁ 공유 현장 · 관리자 OneDrive로 자동 업로드</div>
     ${sites.length ? `<div class="card list">${rows}</div>`
       : `<div class="card empty" style="padding:20px">받은 <b>초대 링크</b>를 누르거나<br>아래 <b>현장 참여</b>에 초대 코드를 넣으세요.</div>`}
+    <p class="hint" style="text-align:right;margin-top:6px"><a href="/host" style="color:var(--accent);font-weight:700;text-decoration:none">🏗 내 클라우드로 새 현장 만들기 ›</a></p>
     <div class="section">📁 내 폴더 · 이 기기에만 저장 (업로드 안 됨)</div>
     ${mine.length ? `<div class="card list">${prow}</div>`
       : `<div class="card empty" style="padding:20px">나만 쓰는 폴더를 만들려면<br>아래 <b>+ 내 폴더</b>를 누르세요.</div>`}

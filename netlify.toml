@@ -18,3 +18,8 @@
   from = "/cam"
   to = "/cam.html"
   status = 200
+
+[[redirects]]
+  from = "/host"
+  to = "/host.html"
+  status = 200

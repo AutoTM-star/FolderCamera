@@ -1,6 +1,8 @@
 package com.example.foldercamera
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Menu
@@ -80,15 +82,38 @@ class MainActivity : AppCompatActivity() {
     // 상단 오른쪽 "📤 앱 공유" 버튼
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, MENU_SHARE_APP, 0, "📤 앱 공유").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        // ⋮ 메뉴 안: 내 OneDrive/구글 드라이브로 새 현장 만들기 (브라우저에서 열림)
+        menu.add(0, MENU_NEW_SITE, 1, "🏗 내 클라우드로 새 현장 만들기")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == MENU_SHARE_APP) {
-            AppShare.showShareApp(this)
-            return true
+        when (item.itemId) {
+            MENU_SHARE_APP -> AppShare.showShareApp(this)
+            MENU_NEW_SITE -> openHostPage()
+            else -> return super.onOptionsItemSelected(item)
         }
-        return super.onOptionsItemSelected(item)
+        return true
+    }
+
+    private fun openHostPage() {
+        val server = SiteStore.lastServer(this) ?: AppShare.DEFAULT_SERVER
+        AlertDialog.Builder(this)
+            .setTitle("🏗 새 현장 만들기")
+            .setMessage(
+                "브라우저에서 내 OneDrive 또는 구글 드라이브로 로그인하고,\n" +
+                    "사진을 모을 폴더를 골라 현장을 만들어요.\n\n" +
+                    "다 만들면 [폴더 카메라 앱에서 열기]를 누르면 이 앱으로 돌아와요."
+            )
+            .setPositiveButton("열기") { _, _ ->
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$server/host")))
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(this, "브라우저를 열 수 없어요", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
     // ───────── 목록 ─────────
@@ -311,5 +336,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val KEY_FOLDERS = "folder_names"
         private const val MENU_SHARE_APP = 100
+        private const val MENU_NEW_SITE = 101
     }
 }

@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>현장 만들기</title>
+<meta name="theme-color" content="#2f6feb">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<script src="/open-external.js"></script>
+<style>
+  :root {
+    --bg: #f3f4f7; --card: #ffffff; --text: #1b2130; --muted: #6a7385; --line: #e2e5eb;
+    --accent: #2f6feb; --accent-press: #2559c4; --danger: #d92d20; --ok: #12a150; --chip: #eaf0ff;
+    --ms: #0f6cbd; --google: #188038;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101318; --card: #1a1f27; --text: #e9ecf1; --muted: #98a1b2; --line: #2a313d;
+      --accent: #5b8def; --accent-press: #4a78d6; --danger: #f97066; --ok: #47cd89; --chip: #222b3b;
+      --ms: #4ea3f1; --google: #5bb974;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { border: 0; background: none; cursor: pointer; }
+  main { max-width: 600px; margin: 0 auto; padding: calc(20px + env(safe-area-inset-top)) 16px 64px; }
+  h1 { font-size: 23px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 15px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; border-radius: 12px;
+    font-weight: 700; font-size: 16px; padding: 0 16px; text-decoration: none; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:active { background: var(--accent-press); }
+  .btn.ghost { background: var(--card); border: 1px solid var(--line); color: var(--accent); }
+  .btn.ms { background: var(--card); border: 2px solid var(--ms); color: var(--ms); }
+  .btn.google { background: var(--card); border: 2px solid var(--google); color: var(--google); }
+  .btn:disabled { opacity: .45; }
+  .stack > * + * { margin-top: 10px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .acct { display: flex; align-items: center; gap: 10px; }
+  .acct .who { flex: 1; min-width: 0; }
+  .acct .who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--chip); }
+  .link { color: var(--accent); font-weight: 600; font-size: 14px; padding: 6px 2px; text-decoration: none; }
+  .link.danger { color: var(--danger); }
+  .site { border-top: 1px solid var(--line); padding: 14px 0 4px; }
+  .site:first-of-type { border-top: 0; }
+  .site .top { display: flex; align-items: center; gap: 8px; }
+  .site .nm { flex: 1; font-weight: 700; font-size: 17px; }
+  .code { font: 700 15px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 2px; background: var(--chip); padding: 2px 8px; border-radius: 6px; }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+  label { display: block; font-weight: 700; margin: 14px 0 6px; }
+  input[type=text], textarea { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-size: 16px; }
+  textarea { min-height: 180px; resize: vertical; }
+  .err { color: var(--danger); font-size: 14px; min-height: 20px; margin-top: 6px; }
+  .browser { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-top: 8px; }
+  .crumb { padding: 10px 12px; background: var(--chip); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .crumb b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow { display: flex; align-items: center; min-height: 50px; padding: 0 12px; border-top: 1px solid var(--line); cursor: pointer; }
+  .frow:active { background: var(--chip); }
+  .frow span { flex: 1; }
+  .chosen { margin-top: 10px; padding: 12px; border-radius: 12px; border: 2px solid var(--ok); font-weight: 700; display: none; }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet { background: var(--bg); width: 100%; max-width: 600px; max-height: 92vh; overflow: auto; border-radius: 18px 18px 0 0;
+    padding: 18px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet .head { display: flex; align-items: center; margin-bottom: 6px; }
+  .sheet .head h2 { flex: 1; margin: 0; }
+  #toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: rgba(20,24,32,.92); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 15px; z-index: 40;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🏗 내 클라우드로 현장 만들기</h1>
+  <p class="sub">내 OneDrive나 구글 드라이브의 폴더를 골라 현장을 만들고, 초대 링크를 보내면 모두가 찍은 사진이 그 폴더로 모여요.</p>
+  <div id="accounts"></div>
+  <div class="card" id="loginCard">
+    <h2 id="loginTitle">클라우드에 로그인</h2>
+    <div class="stack">
+      <button class="btn ms" id="msBtn">☁ OneDrive로 로그인</button>
+      <button class="btn google" id="gBtn">▲ Google Drive로 로그인</button>
+    </div>
+    <p class="muted" id="loginNote" style="margin:10px 0 0">로그인 정보(비밀번호)는 이 앱이 보지 않아요. Microsoft·Google 로그인 화면에서 직접 로그인해요.</p>
+  </div>
+  <p class="muted" style="text-align:center"><a class="link" href="/cam">📷 웹앱 열기</a></p>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const BAD = /[\\/:*?"<>|#%]/;
+const DEFAULT_FOLDERS = "01 전경사진\n01-1 파노라마\n02 검측사진\n03 공종별 사진\n04 품질관리\n05 안전관리\n06 대관·감리\n07 업무지시\n08 본사보고\n09 모델하우스\n10 준공서류\n11 기타";
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+let keys = store.get("fc_owner_keys", []);
+let config = {};
+
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function nameProblem(n) {
+  if (!n) return "이름을 입력하세요";
+  if (n.length > 80) return "이름이 너무 길어요";
+  if (BAD.test(n) || n.startsWith(".") || n.endsWith(".")) return '/ \\ : * ? " < > | # % 와 맨 앞·뒤 . 은 쓸 수 없어요';
+  return null;
+}
+
+async function api(key, method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "x-owner-key": key, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || `오류 (${res.status})`); e.status = res.status; throw e; }
+  return data;
+}
+
+function login(provider) {
+  location.href = `/api/auth/start?provider=${provider}&return=${encodeURIComponent("/host")}`;
+}
+$("#msBtn").onclick = () => login("ms");
+$("#gBtn").onclick = () => login("google");
+
+// 로그인 후 돌아오면 주소에 #key=... 가 붙어 있음 → 이 기기에 저장
+(function takeKeyFromHash() {
+  const m = location.hash.match(/key=([A-Za-z0-9]+)/);
+  if (m) {
+    keys = [m[1]].concat(keys.filter((k) => k !== m[1]));
+    store.set("fc_owner_keys", keys);
+    history.replaceState(null, "", "/host");
+  }
+})();
+
+async function render() {
+  config = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  $("#msBtn").disabled = !config.ms;
+  $("#gBtn").disabled = !config.google;
+  if (!config.google) $("#gBtn").textContent = "▲ Google Drive (아직 준비 중)";
+  $("#loginNote").textContent = "로그인 정보(비밀번호)는 이 앱이 보지 않아요. Microsoft·Google 로그인 화면에서 직접 로그인해요." +
+    (config.ms && !config.msWork ? " OneDrive는 개인 Microsoft 계정(outlook·hotmail·naver 등으로 만든 계정)으로 로그인하세요." : "");
+
+  const box = $("#accounts");
+  box.innerHTML = "";
+  const seen = new Set();
+  const valid = [];
+  for (const key of keys) {
+    let me;
+    try { me = await api(key, "GET", "/api/host/me"); }
+    catch (e) { if (e.status === 401) continue; valid.push(key); box.insertAdjacentHTML("beforeend", `<div class="card muted">⚠ ${esc(e.message)}</div>`); continue; }
+    const id = me.provider + ":" + me.email;
+    if (seen.has(id)) continue;   // 같은 계정으로 여러 번 로그인한 경우 하나만
+    seen.add(id); valid.push(key);
+    box.appendChild(accountCard(key, me));
+  }
+  if (valid.length !== keys.length) { keys = valid; store.set("fc_owner_keys", keys); }
+  $("#loginTitle").textContent = keys.length ? "다른 클라우드 계정 추가" : "클라우드에 로그인";
+}
+
+function accountCard(key, me) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const pname = me.provider === "google" ? "Google Drive" : "OneDrive";
+  card.innerHTML = `
+    <div class="acct">
+      <span style="font-size:26px">${me.provider === "google" ? "▲" : "☁"}</span>
+      <div class="who"><span class="pill">${pname}</span><b>${esc(me.email || me.name)}</b></div>
+      <button class="link" data-out>이 기기에서 로그아웃</button>
+    </div>
+    <div style="margin-top:12px" class="sites"></div>
+    <button class="btn primary" data-new style="margin-top:12px">+ 새 현장 만들기</button>`;
+  const list = $(".sites", card);
+  if (!me.sites.length) list.innerHTML = `<p class="muted" style="margin:0">아직 만든 현장이 없어요.</p>`;
+  for (const s of me.sites) {
+    const el = document.createElement("div");
+    el.className = "site";
+    el.innerHTML = `<div class="top"><span class="nm">🏗 ${esc(s.name)}</span><span class="code">${esc(s.code)}</span></div>
+      <div class="muted">📁 ${esc(s.folderPath || "")}</div>
+      <div class="row-actions">
+        <button class="link" data-share>📤 초대 보내기</button>
+        <button class="link" data-copy>링크 복사</button>
+        <a class="link" href="/cam?join=${encodeURIComponent(s.code)}">📷 이 기기에서 찍기</a>
+        <button class="link danger" data-del>삭제</button>
+      </div>`;
+    $("[data-share]", el).onclick = () => shareInvite(s);
+    $("[data-copy]", el).onclick = () => copy(inviteLink(s.code));
+    $("[data-del]", el).onclick = async () => {
+      if (!confirm(`'${s.name}' 현장을 삭제할까요?\n초대 코드만 막히고, 클라우드의 사진은 그대로 남아요.`)) return;
+      try { await api(key, "DELETE", "/api/host/sites?code=" + encodeURIComponent(s.code)); render(); }
+      catch (e) { alert(e.message); }
+    };
+    list.appendChild(el);
+  }
+  $("[data-new]", card).onclick = () => newSite(key, me.provider);
+  $("[data-out]", card).onclick = () => {
+    if (!confirm("이 기기에서 로그아웃할까요?\n만든 현장과 사진은 그대로 유지돼요.")) return;
+    keys = keys.filter((k) => k !== key); store.set("fc_owner_keys", keys); render();
+  };
+  return card;
+}
+
+const inviteLink = (code) => `${location.origin}/join/${code}`;
+function inviteText(s) {
+  return `[폴더 카메라] ${s.name} 현장 사진 공유\n아래 링크를 눌러 현장에 참여하세요. 안드로이드는 앱 설치, 아이폰은 설치 없이 웹으로 바로 써요. (카톡에서 누르면 브라우저로 열려요)\n${inviteLink(s.code)}\n(초대 코드: ${s.code})`;
+}
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast("복사했어요"); }
+  catch (e) { prompt("복사해서 쓰세요", text); }
+}
+async function shareInvite(s) {
+  if (navigator.share) { try { await navigator.share({ text: inviteText(s) }); return; } catch (e) { if (e.name === "AbortError") return; } }
+  copy(inviteText(s));
+}
+
+// ───────── 새 현장 만들기 ─────────
+function newSite(key, provider) {
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.innerHTML = `<div class="sheet">
+    <div class="head"><h2>🏗 새 현장 만들기</h2><button class="link" data-x>닫기</button></div>
+    <label>1. 현장 이름</label>
+    <input type="text" id="siteName" placeholder="예: 강릉송정">
+    <label>2. 사진을 모을 폴더 (${provider === "google" ? "구글 드라이브" : "OneDrive"})</label>
+    <div id="pickArea"></div>
+    <div class="chosen" id="chosen"></div>
+    <label>3. 기본 폴더 <span class="muted" style="font-weight:400">(고른 폴더 안에 만들어져요. 한 줄에 하나, 비워도 돼요)</span></label>
+    <textarea id="subs">${DEFAULT_FOLDERS}</textarea>
+    <div class="err" id="err"></div>
+    <button class="btn primary" id="create">현장 만들기</button>
+  </div>`;
+  document.body.appendChild(scrim);
+  let chosen = null;
+  const setChosen = (c) => {
+    chosen = c;
+    const el = $("#chosen", scrim);
+    el.style.display = c ? "block" : "none";
+    el.textContent = c ? `✅ 선택한 폴더: ${c.path}` : "";
+  };
+  $("[data-x]", scrim).onclick = () => scrim.remove();
+  if (provider === "google") googlePickArea(key, $("#pickArea", scrim), setChosen, () => $("#siteName", scrim).value.trim());
+  else oneDriveBrowser(key, $("#pickArea", scrim), setChosen);
+
+  $("#create", scrim).onclick = async () => {
+    const err = $("#err", scrim);
+    const name = $("#siteName", scrim).value.trim().replace(/\s+/g, " ");
+    const p = nameProblem(name);
+    if (p) { err.textContent = "현장 이름: " + p; return; }
+    if (!chosen) { err.textContent = "사진을 모을 폴더를 골라 주세요"; return; }
+    const folders = $("#subs", scrim).value.split("\n").map((s) => s.trim()).filter(Boolean);
+    for (const f of folders) { const q = nameProblem(f); if (q) { err.textContent = `폴더 "${f}": ${q}`; return; } }
+    const btn = $("#create", scrim);
+    btn.disabled = true; btn.textContent = "만드는 중… (폴더가 많으면 몇 초 걸려요)"; err.textContent = "";
+    try {
+      const site = await api(key, "POST", "/api/host/sites", { name, folderId: chosen.id, folderPath: chosen.path, folders });
+      scrim.remove();
+      await render();
+      done(site);
+    } catch (e) {
+      err.textContent = e.message;
+    } finally {
+      btn.disabled = false; btn.textContent = "현장 만들기";
+    }
+  };
+}
+
+function done(site) {
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  scrim.innerHTML = `<div class="sheet stack">
+    <h2>🎉 '${esc(site.name)}' 현장을 만들었어요</h2>
+    <p class="muted" style="margin:0">초대 코드 <span class="code">${esc(site.code)}</span></p>
+    <button class="btn primary" data-share>📤 초대 링크 보내기</button>
+    ${isAndroid ? `<a class="btn ghost" href="foldercamera://join?code=${encodeURIComponent(site.code)}&server=${encodeURIComponent(location.origin)}">📱 폴더 카메라 앱에서 열기</a>` : ""}
+    <a class="btn ghost" href="/cam?join=${encodeURIComponent(site.code)}">📷 이 기기 웹앱에서 찍기</a>
+    <button class="link" data-x style="width:100%">닫기</button>
+  </div>`;
+  document.body.appendChild(scrim);
+  $("[data-share]", scrim).onclick = () => shareInvite(site);
+  $("[data-x]", scrim).onclick = () => scrim.remove();
+}
+
+// OneDrive: 폴더 둘러보며 고르기
+function oneDriveBrowser(key, area, setChosen) {
+  area.innerHTML = `<div class="browser"><div class="crumb"><button class="link" data-up>‹ 위로</button><b>불러오는 중…</b></div><div data-list></div></div>
+    <div class="stack" style="margin-top:10px">
+      <button class="btn ghost" data-mk>+ 여기에 새 폴더 만들기</button>
+      <button class="btn primary" data-pick>이 폴더로 선택</button>
+    </div>`;
+  let cur = null;
+  const load = async (id) => {
+    $(".crumb b", area).textContent = "불러오는 중…";
+    try {
+      cur = await api(key, "GET", "/api/host/browse" + (id ? "?id=" + encodeURIComponent(id) : ""));
+      $(".crumb b", area).textContent = "📂 " + (cur.path === "/" ? "내 OneDrive" : cur.path);
+      $("[data-up]", area).style.visibility = cur.parentId ? "visible" : "hidden";
+      const list = $("[data-list]", area);
+      list.innerHTML = cur.folders.length
+        ? cur.folders.map((f) => `<div class="frow" data-id="${esc(f.id)}"><span>📁 ${esc(f.name)}</span><span style="flex:0;color:var(--muted)">›</span></div>`).join("")
+        : `<div class="frow muted" style="cursor:default">하위 폴더가 없어요</div>`;
+      list.querySelectorAll("[data-id]").forEach((r) => { r.onclick = () => load(r.dataset.id); });
+    } catch (e) {
+      $(".crumb b", area).textContent = "⚠ " + e.message;
+    }
+  };
+  $("[data-up]", area).onclick = () => { if (cur?.parentId) load(cur.parentId); };
+  $("[data-pick]", area).onclick = () => {
+    if (!cur) return;
+    setChosen({ id: cur.id, path: cur.path === "/" ? "내 OneDrive (맨 위)" : cur.path });
+  };
+  $("[data-mk]", area).onclick = async () => {
+    if (!cur) return;
+    const name = (prompt("새 폴더 이름") || "").trim();
+    if (!name) return;
+    const p = nameProblem(name); if (p) { alert(p); return; }
+    try { const made = await api(key, "POST", "/api/host/mkdir", { parentId: cur.id, name }); await load(made.id); toast("폴더를 만들었어요"); }
+    catch (e) { alert(e.message); }
+  };
+  load(null);
+}
+
+// 구글 드라이브: 폴더 고르기 창(Picker) 또는 새 폴더 만들기
+function googlePickArea(key, area, setChosen, siteName) {
+  area.innerHTML = `<div class="stack">
+      <button class="btn google" data-picker ${config.googlePicker ? "" : "disabled"}>▲ 구글 드라이브에서 폴더 고르기</button>
+      <button class="btn ghost" data-mk>+ 내 드라이브에 새 폴더 만들기</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">${config.googlePicker ? "" : "폴더 고르기 창은 아직 설정되지 않았어요. "}새 폴더는 '내 드라이브' 맨 위에 만들어져요.</p>`;
+  $("[data-mk]", area).onclick = async () => {
+    const name = (prompt("새 폴더 이름", siteName() || "") || "").trim();
+    if (!name) return;
+    const p = nameProblem(name); if (p) { alert(p); return; }
+    try { const made = await api(key, "POST", "/api/host/mkdir", { name }); setChosen({ id: made.id, path: "내 드라이브/" + made.name }); }
+    catch (e) { alert(e.message); }
+  };
+  $("[data-picker]", area).onclick = async () => {
+    try {
+      const info = await api(key, "GET", "/api/host/gpicker");
+      await loadScript("https://apis.google.com/js/api.js");
+      await new Promise((r) => gapi.load("picker", r));
+      const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+        .setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes("application/vnd.google-apps.folder");
+      new google.picker.PickerBuilder()
+        .setOAuthToken(info.accessToken).setDeveloperKey(info.apiKey).setAppId(info.appId)
+        .addView(view).setTitle("현장 사진을 모을 폴더 선택").setLocale("ko")
+        .setCallback((d) => {
+          if (d.action === google.picker.Action.PICKED && d.docs && d.docs[0]) {
+            setChosen({ id: d.docs[0].id, path: "구글 드라이브/" + d.docs[0].name });
+          }
+        }).build().setVisible(true);
+    } catch (e) { alert(e.message || "폴더 고르기 창을 열 수 없어요"); }
+  };
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error("구글 스크립트를 불러오지 못했어요"));
+    document.head.appendChild(s);
+  });
+}
+
+render();
+</script>
+</body>
+</html>
