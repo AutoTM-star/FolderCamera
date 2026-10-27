@@ -34,24 +34,40 @@
     <span class="code" id="code">------</span>
   </div>
 
-  <div class="card">
+  <!-- 아이폰: 웹앱으로 바로 -->
+  <div class="card" id="iosCard" hidden>
+    <div class="step">🍎 아이폰은 설치 없이 바로 쓸 수 있어요</div>
+    <a class="btn" id="openWeb" href="#">현장 참여하고 시작하기</a>
+    <p class="muted">열린 화면에서 사파리 아래쪽 <b>공유 버튼(⬆︎) → 홈 화면에 추가</b>를 하면 앱처럼 아이콘이 생겨요.</p>
+  </div>
+
+  <div class="card android">
     <div class="step">1. 앱 설치 (처음 한 번만)</div>
     <a class="btn ghost" href="https://github.com/AutoTM-star/FolderCamera/releases/latest/download/FolderCamera.apk">앱 내려받기 (APK)</a>
     <p class="muted">내려받은 파일을 눌러 설치하세요. "출처를 알 수 없는 앱" 허용이 필요할 수 있어요.
       이미 설치했으면 이 단계는 건너뛰세요. <a href="/app">자세한 설치 방법</a></p>
   </div>
 
-  <div class="card">
+  <div class="card android">
     <div class="step">2. 현장 참여</div>
     <a class="btn" id="openApp" href="#">앱에서 바로 참여하기</a>
     <p class="muted">버튼이 안 되면: 앱 → <b>현장 참여</b> → 이 페이지 주소를 붙여넣거나 위 코드를 입력하세요.</p>
+    <p class="muted">앱을 설치하기 어려우면 <a id="webLink" href="#">설치 없이 웹으로 쓰기</a></p>
   </div>
 </main>
 <script>
   const code = (location.pathname.split("/").filter(Boolean).pop() || "").toUpperCase();
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const web = "/cam?join=" + encodeURIComponent(code);
   document.getElementById("code").textContent = code || "------";
   document.getElementById("openApp").href =
     "foldercamera://join?code=" + encodeURIComponent(code) + "&server=" + encodeURIComponent(location.origin);
+  document.getElementById("openWeb").href = web;
+  document.getElementById("webLink").href = web;
+  if (isIOS) {
+    document.getElementById("iosCard").hidden = false;
+    document.querySelectorAll(".android").forEach((el) => (el.hidden = true));
+  }
 </script>
 </body>
 </html>

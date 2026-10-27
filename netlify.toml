@@ -13,3 +13,8 @@
   from = "/join/*"
   to = "/join.html"
   status = 200
+
+[[redirects]]
+  from = "/cam"
+  to = "/cam.html"
+  status = 200

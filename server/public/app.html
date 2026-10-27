@@ -27,13 +27,19 @@
 <body>
 <main>
   <h1>📷 폴더 카메라</h1>
-  <p class="sub">폴더별로 찍고, 현장 사진을 한곳에 모으는 카메라 앱 (안드로이드 10 이상)</p>
+  <p class="sub">폴더별로 찍고, 현장 사진을 한곳에 모으는 카메라 앱 (안드로이드 10 이상 · 아이폰은 웹앱)</p>
 
-  <div class="card">
+  <div class="card" id="iosCard" hidden>
+    <b>🍎 아이폰은 설치 없이 바로 써요</b>
+    <p class="muted" style="margin:6px 0 12px">받은 <b>현장 초대 링크</b>를 누르면 바로 시작돼요. 초대 코드만 있다면 아래 버튼을 누르세요.</p>
+    <a class="btn" href="/cam">웹앱 열기</a>
+  </div>
+
+  <div class="card android">
     <a class="btn" href="https://github.com/AutoTM-star/FolderCamera/releases/latest/download/FolderCamera.apk">앱 내려받기</a>
   </div>
 
-  <div class="card">
+  <div class="card android">
     <b>설치 방법</b>
     <ol>
       <li>위 버튼을 누르면 <b>FolderCamera.apk</b> 가 내려받아져요.</li>
@@ -49,5 +55,11 @@
     <p class="muted" style="margin:6px 0 0">설치한 다음, 받은 <b>초대 링크</b>를 다시 누르면 바로 현장에 참여할 수 있어요.</p>
   </div>
 </main>
+<script>
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+    document.getElementById("iosCard").hidden = false;
+    document.querySelectorAll(".android").forEach((el) => (el.hidden = true));
+  }
+</script>
 </body>
 </html>

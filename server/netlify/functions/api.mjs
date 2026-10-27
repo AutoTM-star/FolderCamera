@@ -176,7 +176,7 @@ export default async (req) => {
   const redirectUri = `${url.origin}/api/callback`;
 
   try {
-    const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    const body = req.method === "POST" && route !== "upload-file" ? await req.json().catch(() => ({})) : {};
 
     switch (`${req.method} ${route}`) {
       // 관리자: OneDrive 연결 시작
@@ -272,6 +272,65 @@ export default async (req) => {
         const folder = cleanName(body.name, "폴더 이름");
         await ensureFolder([ROOT, site.name, folder]);
         return json({ ok: true, name: folder });
+      }
+
+      // 웹앱: 폴더 안 사진 목록 (모든 참여자가 올린 사진, 미리보기 주소 포함)
+      case "GET photos": {
+        const site = await siteByCode(url.searchParams.get("code"));
+        const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
+        const path =
+          `/me/drive/root:/${enc([ROOT, site.name, folder])}:/children` +
+          `?$top=200&$expand=thumbnails&$select=id,name,file,size,createdDateTime,@microsoft.graph.downloadUrl`;
+        const { res, data } = await graph("GET", path);
+        if (res.status === 404) return json({ photos: [] });
+        if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
+        const photos = (data.value || [])
+          .filter((item) => item.file)
+          .map((item) => {
+            const t = (item.thumbnails || [])[0] || {};
+            return {
+              name: item.name,
+              created: item.createdDateTime,
+              small: t.medium?.url || t.small?.url || null,
+              large: t.large?.url || null,
+              full: item["@microsoft.graph.downloadUrl"] || null,
+            };
+          })
+          .sort((a, b) => String(b.created).localeCompare(String(a.created)));
+        return json({ photos });
+      }
+
+      // 웹앱: 브라우저가 OneDrive로 직접 못 올릴 때 서버를 거쳐 올리기 (최대 약 5MB)
+      case "POST upload-file": {
+        const site = await siteByCode(url.searchParams.get("code"));
+        const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
+        const fileName = cleanName(url.searchParams.get("name"), "파일 이름");
+        if (!/\.(jpe?g|png|heic|heif|webp)$/i.test(fileName)) throw new HttpError(400, "사진 파일만 올릴 수 있어요");
+        const bytes = await req.arrayBuffer();
+        if (!bytes.byteLength) throw new HttpError(400, "빈 파일이에요");
+        if (bytes.byteLength > 5.5 * 1024 * 1024) throw new HttpError(413, "사진이 너무 커요");
+        const target =
+          `${GRAPH}/me/drive/root:/${enc([ROOT, site.name, folder, fileName])}:/content` +
+          `?@microsoft.graph.conflictBehavior=rename`;
+        const put = async () =>
+          fetch(target, {
+            method: "PUT",
+            headers: {
+              authorization: `Bearer ${await accessToken()}`,
+              "content-type": req.headers.get("content-type") || "image/jpeg",
+            },
+            body: bytes,
+          });
+        let res = await put();
+        if (res.status === 404) {
+          await ensureFolder([ROOT, site.name, folder]);
+          res = await put();
+        }
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new HttpError(502, `업로드 실패: ${data?.error?.message || res.status}`);
+        }
+        return json({ ok: true });
       }
 
       // 앱: 현장 폴더 삭제 (비어 있는 폴더만 — 다른 사람 사진 보호)

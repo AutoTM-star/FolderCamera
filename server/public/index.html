@@ -122,7 +122,7 @@
   function inviteLink(code) { return location.origin + "/join/" + code; }
   function inviteMessage(site) {
     return "[폴더 카메라] " + site.name + " 현장 사진 공유\n"
-      + "아래 링크를 눌러 앱을 설치하고 현장에 참여하세요. (카톡에서 누르면 Chrome으로 열려요)\n"
+      + "아래 링크를 눌러 현장에 참여하세요. 안드로이드는 앱 설치, 아이폰은 설치 없이 웹으로 바로 써요. (카톡에서 누르면 브라우저로 열려요)\n"
       + inviteLink(site.code) + "\n(초대 코드: " + site.code + ")";
   }
 
