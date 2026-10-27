@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>폴더 카메라 사용설명서</title>
+<meta name="theme-color" content="#2f6feb">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<script src="/open-external.js"></script>
+<style>
+  :root {
+    --bg: #f3f4f7; --card: #ffffff; --text: #1b2130; --muted: #5f6878; --line: #e2e5eb;
+    --accent: #2f6feb; --chip: #eaf0ff; --warn-bg: #fff6e5; --warn: #8a5a00; --ok: #12a150;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101318; --card: #1a1f27; --text: #e9ecf1; --muted: #a3acbd; --line: #2a313d;
+      --accent: #6b98f2; --chip: #222b3b; --warn-bg: #2d2617; --warn: #f2c46b; --ok: #47cd89;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  header { background: var(--accent); color: #fff; padding: calc(22px + env(safe-area-inset-top)) 16px 18px; }
+  header .in { max-width: 680px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 24px; }
+  header p { margin: 4px 0 0; opacity: .9; font-size: 15px; }
+  nav { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+  nav .in { max-width: 680px; margin: 0 auto; display: flex; overflow-x: auto; padding: 8px 12px; gap: 6px; scrollbar-width: none; }
+  nav button { flex: none; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 99px;
+    padding: 8px 14px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+  nav button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  main { max-width: 680px; margin: 0 auto; padding: 16px 16px 64px; }
+  section { display: none; }
+  section.on { display: block; }
+  h2 { font-size: 20px; margin: 8px 0 12px; }
+  h3 { font-size: 17px; margin: 0 0 6px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .step { display: flex; gap: 12px; }
+  .num { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; margin-top: 1px; }
+  .step p { margin: 0; }
+  .step ul { margin: 6px 0 0; padding-left: 18px; }
+  .k { display: inline-block; background: var(--chip); border-radius: 7px; padding: 0 7px; font-weight: 700; white-space: nowrap; }
+  .tip { background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 12px 14px; font-size: 15px; margin: 12px 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .btn { display: block; text-align: center; text-decoration: none; background: var(--accent); color: #fff; font-weight: 700;
+    border-radius: 12px; padding: 14px; margin-top: 10px; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 10px; }
+  summary { padding: 14px 16px; font-weight: 700; cursor: pointer; list-style: none; }
+  summary::after { content: "＋"; float: right; color: var(--muted); }
+  details[open] summary::after { content: "－"; }
+  details > div { padding: 0 16px 14px; }
+  .who { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .who button { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  .who b { display: block; font-size: 16px; }
+  .who span { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header><div class="in">
+  <h1>📷 폴더 카메라 사용설명서</h1>
+  <p>현장 사진을 폴더별로 찍으면, 현장 클라우드로 자동으로 모여요.</p>
+</div></header>
+
+<nav><div class="in">
+  <button data-tab="start">처음이라면</button>
+  <button data-tab="android">안드로이드</button>
+  <button data-tab="iphone">아이폰</button>
+  <button data-tab="owner">현장 만들기</button>
+  <button data-tab="faq">문제 해결</button>
+</div></nav>
+
+<main>
+  <!-- ───────── 처음이라면 ───────── -->
+  <section id="sec-start">
+    <h2>어떤 폰을 쓰세요?</h2>
+    <div class="who">
+      <button data-go="android"><b>🤖 안드로이드</b><span>삼성 갤럭시 등 · 앱 설치</span></button>
+      <button data-go="iphone"><b>🍎 아이폰</b><span>설치 없이 웹앱으로</span></button>
+    </div>
+    <div class="card">
+      <h3>한눈에 보기</h3>
+      <div class="step" style="margin-top:8px"><div class="num">1</div><p>관리자에게 받은 <b>초대 링크</b>를 눌러요. (카톡으로 받음)</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><p>안드로이드는 <b>앱 설치</b>, 아이폰은 <b>웹앱</b>으로 현장에 들어가요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">3</div><p><b>현장 → 폴더</b>(예: 01 전경사진)를 고르고 찍어요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">4</div><p>찍은 사진은 <b>자동으로 현장 클라우드에 올라가요.</b> 따로 보낼 필요 없어요.</p></div>
+    </div>
+    <div class="card">
+      <h3>꼭 지켜 주세요</h3>
+      <ul style="margin:6px 0 0;padding-left:18px">
+        <li>찍기 전에 <b>맞는 폴더</b>인지 확인하세요. 잘못 찍은 사진은 폴더를 옮길 수 없어요.</li>
+        <li>처음 한 번 <b>내 이름</b>을 넣어 주세요. 사진 파일 이름에 붙어서 누가 찍었는지 알 수 있어요.</li>
+        <li>초대 링크는 <b>현장 사람에게만</b> 보내 주세요.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ───────── 안드로이드 ───────── -->
+  <section id="sec-android">
+    <h2>🤖 안드로이드 사용법</h2>
+
+    <div class="card">
+      <h3>1. 앱 설치 (처음 한 번)</h3>
+      <div class="step"><div class="num">1</div><p>카톡으로 받은 <b>초대 링크</b>를 눌러요. 자동으로 Chrome에서 열려요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><div><p><span class="k">앱 내려받기 (APK)</span>를 눌러요.</p>
+        <ul><li>"유해할 수 있는 파일" 안내 → <span class="k">다운로드</span></li></ul></div></div>
+      <div class="step" style="margin-top:10px"><div class="num">3</div><div><p>알림창이나 <b>내 파일 → 다운로드</b>에서 <b>FolderCamera.apk</b>를 눌러 설치해요.</p>
+        <ul><li>"출처를 알 수 없는 앱" 안내 → <span class="k">설정</span> → <b>이 출처 허용</b> 켜기 → 뒤로 → <span class="k">설치</span></li></ul></div></div>
+      <a class="btn" href="https://github.com/AutoTM-star/FolderCamera/releases/latest/download/FolderCamera.apk">⬇ 앱 바로 받기</a>
+      <p class="muted" style="margin:8px 0 0">옆 사람이 이미 앱을 쓰고 있다면, 그 사람 앱의 <span class="k">📤 앱 공유</span> → <b>Quick Share</b>로 바로 받을 수도 있어요.</p>
+    </div>
+
+    <div class="card">
+      <h3>2. 현장 참여</h3>
+      <div class="step"><div class="num">1</div><p>초대 링크를 다시 눌러 <span class="k">앱에서 바로 참여하기</span>를 눌러요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><p><b>내 이름</b>을 넣고 <span class="k">참여</span>를 눌러요.</p></div>
+      <p class="muted" style="margin:10px 0 0">버튼이 안 되면: 앱 첫 화면 <span class="k">☁ 현장 참여</span> → 초대 메시지를 통째로 붙여넣거나 <b>초대 코드 6자리</b> 입력</p>
+    </div>
+
+    <div class="card">
+      <h3>3. 촬영</h3>
+      <div class="step"><div class="num">1</div><p>첫 화면에서 <b>🏗 현장</b>을 누르고, <b>폴더</b>를 눌러요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><div><p><b>흰 동그라미(셔터)</b>나 <b>음량 버튼</b>을 누르면 찍혀요. 짧게 진동이 와요.</p>
+        <ul>
+          <li><b>줌:</b> 두 손가락으로 벌리기 또는 아래 <span class="k">0.5×</span> <span class="k">1×</span> <span class="k">2×</span></li>
+          <li><b>초점:</b> 화면을 톡 누르기</li>
+          <li><b>플래시:</b> 오른쪽 위 <span class="k">⚡ 끔/자동/켬</span></li>
+          <li><b>삼성 카메라로 찍기:</b> 위쪽 <span class="k">📷 삼성</span> (초광각·야간 등 삼성 기능 사용)</li>
+        </ul></div></div>
+      <div class="step" style="margin-top:10px"><div class="num">3</div><p>위쪽에 <b>"☁ 업로드 대기 n장"</b> → <b>"☁ OneDrive 업로드 완료"</b>로 바뀌면 다 올라간 거예요.</p></div>
+      <div class="tip">인터넷이 끊겨도 괜찮아요. 폰에 저장해 두었다가 연결되면 <b>자동으로</b> 올라가요. (앱을 꺼도 됨)</div>
+    </div>
+
+    <div class="card">
+      <h3>4. 찍은 사진 확인 (앨범)</h3>
+      <p style="margin:0">셔터 왼쪽 <b>작은 사진</b>을 누르면 그 폴더 앨범이 열려요.</p>
+      <ul style="margin:6px 0 0;padding-left:18px">
+        <li>옆으로 밀어 넘기기 · <span class="k">🔍 확대 보기</span>로 초점 확인</li>
+        <li><span class="k">📤 보내기</span> 카톡 등으로 보내기 · <span class="k">🗑 삭제</span> 폰에서만 지움</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>5. 폴더 관리</h3>
+      <ul style="margin:0;padding-left:18px">
+        <li><b>현장 폴더 추가:</b> 현장 화면 아래 <span class="k">+ 새 폴더 만들기</span> (모든 사람에게 보여요)</li>
+        <li><b>폴더 삭제:</b> 폴더 오른쪽 <span class="k">⋮</span> → 🗑 폴더 삭제 (현장 폴더는 <b>비어 있을 때만</b> 지워져요)</li>
+        <li><b>내 폴더:</b> 첫 화면 <span class="k">+ 새 폴더</span> → 이 폰에만 저장, 업로드 안 됨</li>
+        <li><b>현장 초대:</b> 현장 화면 오른쪽 위 <span class="k">👥 초대</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ───────── 아이폰 ───────── -->
+  <section id="sec-iphone">
+    <h2>🍎 아이폰 사용법</h2>
+    <div class="tip">아이폰은 앱을 설치하지 않아요. <b>사파리에서 여는 웹앱</b>으로 써요.</div>
+
+    <div class="card">
+      <h3>1. 현장 참여</h3>
+      <div class="step"><div class="num">1</div><p>카톡으로 받은 <b>초대 링크</b>를 눌러요. 사파리로 넘어가요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><p><span class="k">현장 참여하고 시작하기</span>를 누르고 <b>내 이름</b>을 넣어요.</p></div>
+    </div>
+
+    <div class="card">
+      <h3>2. 홈 화면에 추가 (꼭 해 주세요)</h3>
+      <div class="step"><div class="num">1</div><p>사파리 아래쪽 <b>공유 버튼 <span class="k">⬆︎</span></b>을 눌러요. (안 보이면 <span class="k">⋯</span> → 공유)</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><p><b>홈 화면에 추가</b> → <span class="k">추가</span></p></div>
+      <div class="step" style="margin-top:10px"><div class="num">3</div><p>다음부터는 홈 화면의 <b>📷 폴더카메라</b> 아이콘으로 열어요.</p></div>
+    </div>
+
+    <div class="card">
+      <h3>3. 촬영</h3>
+      <div class="step"><div class="num">1</div><p><b>현장 → 폴더</b>를 누르고 아래 <span class="k">📷 촬영</span>을 눌러요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><p>아이폰 기본 카메라가 열려요. 찍은 뒤 <span class="k">사진 사용</span>을 누르면 올라가요.</p></div>
+      <div class="step" style="margin-top:10px"><div class="num">3</div><p><b>"☁ OneDrive에 1장 올라갔어요"</b>가 뜨면 완료예요.</p></div>
+      <ul style="margin:10px 0 0;padding-left:18px">
+        <li>이미 찍어 둔 사진은 <span class="k">🖼 고르기</span>로 여러 장 한꺼번에 올려요.</li>
+        <li>폴더 화면에 <b>모든 사람이 올린 사진</b>이 보여요. 누르면 크게 보고, 길게 눌러 '사진 앱에 저장'.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>알아 두세요</h3>
+      <ul style="margin:0;padding-left:18px">
+        <li>웹앱으로 찍은 사진은 <b>아이폰 '사진' 앱에 자동 저장되지 않아요.</b> (클라우드에는 올라감)</li>
+        <li>찍을 때 진동은 없어요. (아이폰 사파리 제한)</li>
+        <li>올라가기 전에 웹앱을 닫았다면, 다시 열면 이어서 올라가요.</li>
+        <li><b>📁 내 폴더</b>는 이 아이폰 안에만 저장돼요. 중요한 사진은 <span class="k">📥 사진 앱에 저장</span>을 눌러 두세요.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ───────── 현장 만들기 ───────── -->
+  <section id="sec-owner">
+    <h2>🏗 현장 만들기 (현장 담당자)</h2>
+    <p class="muted" style="margin-top:-6px">내 OneDrive나 구글 드라이브의 폴더로 현장 사진을 모으고 싶을 때</p>
+
+    <div class="card">
+      <div class="step"><div class="num">1</div><div><p><b>현장 만들기 페이지</b>를 열어요.</p>
+        <ul><li>안드로이드 앱: 오른쪽 위 <span class="k">⋮</span> → 🏗 내 클라우드로 새 현장 만들기</li>
+            <li>아이폰 웹앱: 첫 화면 <span class="k">🏗 내 클라우드로 새 현장 만들기 ›</span></li></ul></div></div>
+      <div class="step" style="margin-top:10px"><div class="num">2</div><div><p><span class="k">OneDrive로 로그인</span> 또는 <span class="k">Google Drive로 로그인</span></p>
+        <ul><li>OneDrive는 <b>개인 Microsoft 계정</b>만 돼요. (회사 계정 X)</li>
+            <li>구글에서 "확인되지 않은 앱"이 나오면 <b>고급 → 이동</b></li></ul></div></div>
+      <div class="step" style="margin-top:10px"><div class="num">3</div><p><span class="k">+ 새 현장 만들기</span> → 현장 이름 → <b>사진을 모을 폴더</b> 고르기 → <span class="k">현장 만들기</span></p></div>
+      <div class="step" style="margin-top:10px"><div class="num">4</div><p><span class="k">📤 초대 링크 보내기</span>로 현장 단톡방에 보내면 끝!</p></div>
+      <a class="btn" href="/host">🏗 현장 만들기 페이지 열기</a>
+    </div>
+
+    <div class="card">
+      <h3>관리</h3>
+      <ul style="margin:0;padding-left:18px">
+        <li>같은 페이지에서 내 현장 목록, 초대 코드, 초대 다시 보내기, 삭제를 할 수 있어요.</li>
+        <li>현장을 <b>삭제</b>하면 초대 코드만 막히고, 클라우드의 사진은 그대로 남아요.</li>
+        <li>사진이 든 폴더 정리·삭제는 <b>내 OneDrive/구글 드라이브에서 직접</b> 해요.</li>
+        <li>다른 폰에서 관리하려면 그 폰에서 같은 계정으로 다시 로그인하면 돼요.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ───────── 문제 해결 ───────── -->
+  <section id="sec-faq">
+    <h2>🛠 문제 해결</h2>
+    <details><summary>다운로드가 계속 돌기만 해요</summary><div>
+      카톡 안에서 열린 경우예요. 링크를 <b>Chrome(또는 삼성 인터넷)</b>에서 열어 주세요. 새 링크는 자동으로 Chrome으로 넘어가요.</div></details>
+    <details><summary>"출처를 알 수 없는 앱" 때문에 설치가 안 돼요</summary><div>
+      안내 창의 <b>설정</b> → <b>이 출처 허용</b>을 켜고 뒤로 돌아와 <b>설치</b>를 누르세요. 설치 후 다시 꺼도 돼요.</div></details>
+    <details><summary>"업로드 대기"가 줄지 않아요</summary><div>
+      인터넷 연결을 확인하세요. 연결되면 자동으로 올라가요. 계속 안 되면 앱(웹앱)을 껐다 켜 보세요.
+      "⚠ 업로드 실패"가 보이면 현장이 삭제됐거나 폴더 이름 문제일 수 있으니 현장 담당자에게 알려 주세요.</div></details>
+    <details><summary>찍은 사진은 어디에 있나요?</summary><div>
+      <b>폰:</b> 갤러리에서 <b>폴더 이름</b>(예: 01 전경사진) 앨범 (안드로이드) · 아이폰은 웹앱 안<br>
+      <b>클라우드:</b> 현장 담당자의 OneDrive/구글 드라이브 → 현장 폴더 → 폴더 이름</div></details>
+    <details><summary>폴더를 잘못 만들었어요 / 삭제가 안 돼요</summary><div>
+      폴더 오른쪽 <b>⋮ → 폴더 삭제</b>. 현장 폴더는 다른 사람 사진 보호를 위해 <b>비어 있을 때만</b> 지워져요. 사진이 있으면 현장 담당자가 클라우드에서 정리해요.</div></details>
+    <details><summary>잘못된 폴더에 찍었어요</summary><div>
+      앱에서는 옮길 수 없어요. 맞는 폴더에서 다시 찍고, 잘못 올라간 사진은 현장 담당자에게 정리를 부탁하세요.</div></details>
+    <details><summary>내 이름을 바꾸고 싶어요</summary><div>
+      <b>안드로이드:</b> <span class="k">☁ 현장 참여</span>에서 같은 초대 코드로 다시 참여하며 이름 입력<br>
+      <b>아이폰:</b> 웹앱 첫 화면 오른쪽 위 <span class="k">👤 이름</span></div></details>
+    <details><summary>앱 업데이트는 어떻게 하나요?</summary><div>
+      <a href="/app">설치 페이지</a>에서 다시 받아 설치하면 덮어써져요. 찍은 사진과 폴더는 그대로예요. 아이폰 웹앱은 자동으로 최신이에요.</div></details>
+    <details><summary>그래도 안 되면</summary><div>
+      현장 담당자에게 <b>화면 캡처</b>를 보내 주세요.</div></details>
+  </section>
+</main>
+
+<script>
+  const tabs = document.querySelectorAll("nav button");
+  function show(id) {
+    document.querySelectorAll("section").forEach((s) => s.classList.toggle("on", s.id === "sec-" + id));
+    tabs.forEach((b) => b.classList.toggle("on", b.dataset.tab === id));
+    try { history.replaceState(null, "", "#" + id); } catch (e) {}
+    window.scrollTo(0, 0);
+  }
+  tabs.forEach((b) => (b.onclick = () => show(b.dataset.tab)));
+  document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => show(b.dataset.go)));
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const hash = location.hash.slice(1);
+  show(["start", "android", "iphone", "owner", "faq"].includes(hash) ? hash : "start");
+  if (isIOS) document.querySelector('[data-tab="iphone"]').textContent = "아이폰 (내 폰)";
+  else if (/Android/i.test(navigator.userAgent)) document.querySelector('[data-tab="android"]').textContent = "안드로이드 (내 폰)";
+</script>
+</body>
+</html>

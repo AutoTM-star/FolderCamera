@@ -84,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         menu.add(0, MENU_SHARE_APP, 0, "📤 앱 공유").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         // ⋮ 메뉴 안: 내 OneDrive/구글 드라이브로 새 현장 만들기 (브라우저에서 열림)
         menu.add(0, MENU_NEW_SITE, 1, "🏗 내 클라우드로 새 현장 만들기")
+        menu.add(0, MENU_GUIDE, 2, "❓ 사용설명서")
         return true
     }
 
@@ -91,9 +92,19 @@ class MainActivity : AppCompatActivity() {
         when (item.itemId) {
             MENU_SHARE_APP -> AppShare.showShareApp(this)
             MENU_NEW_SITE -> openHostPage()
+            MENU_GUIDE -> openWeb("/guide#android")
             else -> return super.onOptionsItemSelected(item)
         }
         return true
+    }
+
+    private fun openWeb(path: String) {
+        val server = SiteStore.lastServer(this) ?: AppShare.DEFAULT_SERVER
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(server + path)))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "브라우저를 열 수 없어요", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openHostPage() {
@@ -337,5 +348,6 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_FOLDERS = "folder_names"
         private const val MENU_SHARE_APP = 100
         private const val MENU_NEW_SITE = 101
+        private const val MENU_GUIDE = 102
     }
 }
