@@ -280,7 +280,7 @@ export default async (req) => {
         const folder = cleanName(url.searchParams.get("folder"), "폴더 이름");
         const path =
           `/me/drive/root:/${enc([ROOT, site.name, folder])}:/children` +
-          `?$top=200&$expand=thumbnails&$select=id,name,file,size,createdDateTime,@microsoft.graph.downloadUrl`;
+          `?$top=200&$expand=thumbnails`;
         const { res, data } = await graph("GET", path);
         if (res.status === 404) return json({ photos: [] });
         if (!res.ok) throw new HttpError(502, `OneDrive 목록 오류: ${data?.error?.message || res.status}`);
