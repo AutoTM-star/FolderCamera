@@ -2,6 +2,8 @@ package com.example.foldercamera
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.PopupMenu
@@ -53,6 +55,20 @@ class SiteActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         load()
+    }
+
+    // 상단 오른쪽 "👥 초대" 버튼: 이 현장 초대 링크 보내기
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, MENU_INVITE, 0, "👥 초대").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == MENU_INVITE) {
+            AppShare.shareInvite(this, site)
+            return true
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     private fun showFolders(list: List<String>) {
@@ -172,5 +188,6 @@ class SiteActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_CODE = "code"
+        private const val MENU_INVITE = 100
     }
 }

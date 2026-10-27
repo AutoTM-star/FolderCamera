@@ -3,6 +3,8 @@ package com.example.foldercamera
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.PopupMenu
@@ -73,6 +75,20 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         reload()
+    }
+
+    // 상단 오른쪽 "📤 앱 공유" 버튼
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, MENU_SHARE_APP, 0, "📤 앱 공유").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == MENU_SHARE_APP) {
+            AppShare.showShareApp(this)
+            return true
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     // ───────── 목록 ─────────
@@ -238,7 +254,10 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             val ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             ok.setOnClickListener {
-                val parsed = Api.parseInvite(inviteInput.text.toString(), SiteStore.lastServer(this))
+                val parsed = Api.parseInvite(
+                    inviteInput.text.toString(),
+                    SiteStore.lastServer(this) ?: AppShare.DEFAULT_SERVER
+                )
                 if (parsed == null) {
                     inviteInput.error = "초대 링크 전체(https://…/join/코드)를 붙여넣어 주세요"
                     return@setOnClickListener
@@ -291,5 +310,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val KEY_FOLDERS = "folder_names"
+        private const val MENU_SHARE_APP = 100
     }
 }

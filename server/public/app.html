@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>폴더 카메라 설치</title>
+<script src="/open-external.js"></script>
+<style>
+  :root { --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #667085; --line: #e3e6eb; --accent: #2f6feb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --card: #1b2029; --text: #e8ebf0; --muted: #98a2b3; --line: #2c3340; --accent: #5b8def; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 28px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 14px; }
+  .btn { display: block; text-align: center; text-decoration: none; font-weight: 700; font-size: 18px; border-radius: 12px;
+    padding: 16px; background: var(--accent); color: #fff; }
+  ol { margin: 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>📷 폴더 카메라</h1>
+  <p class="sub">폴더별로 찍고, 현장 사진을 한곳에 모으는 카메라 앱 (안드로이드 10 이상)</p>
+
+  <div class="card">
+    <a class="btn" href="https://github.com/AutoTM-star/FolderCamera/releases/latest/download/FolderCamera.apk">앱 내려받기</a>
+  </div>
+
+  <div class="card">
+    <b>설치 방법</b>
+    <ol>
+      <li>위 버튼을 누르면 <b>FolderCamera.apk</b> 가 내려받아져요.</li>
+      <li>"유해할 수 있는 파일" 안내가 나오면 <b>다운로드</b>를 눌러요.</li>
+      <li>알림창(또는 내 파일 → 다운로드)에서 파일을 눌러 <b>설치</b>해요.</li>
+      <li>"출처를 알 수 없는 앱" 안내가 나오면 <b>설정 → 이 출처 허용</b>을 켜고 돌아와서 설치해요.</li>
+    </ol>
+    <p class="muted">이미 설치돼 있으면 덮어서 최신 버전으로 업데이트돼요. 찍은 사진은 그대로 남아요.</p>
+  </div>
+
+  <div class="card">
+    <b>현장 초대를 받았나요?</b>
+    <p class="muted" style="margin:6px 0 0">설치한 다음, 받은 <b>초대 링크</b>를 다시 누르면 바로 현장에 참여할 수 있어요.</p>
+  </div>
+</main>
+</body>
+</html>

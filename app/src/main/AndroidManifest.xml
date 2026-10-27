@@ -38,6 +38,17 @@
             android:name=".SiteActivity"
             android:exported="false" />
 
+        <!-- 앱 파일(APK) 공유용 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".AlbumActivity"
             android:exported="false" />
