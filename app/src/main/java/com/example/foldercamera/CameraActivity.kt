@@ -7,9 +7,18 @@ import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.os.Environment
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.MediaStore
+import android.util.Size
+import android.widget.ImageView
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -51,6 +60,7 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var folder: String
     private var site: Site? = null          // 공유 현장이면 OneDrive로 자동 업로드
     private lateinit var uploadText: TextView
+    private lateinit var albumButton: ImageView
     private lateinit var previewView: PreviewView
     private lateinit var flashOverlay: View
     private lateinit var focusRing: View
@@ -117,6 +127,8 @@ class CameraActivity : AppCompatActivity() {
         flashButton = findViewById(R.id.flashButton)
         zoomRow = findViewById(R.id.zoomRow)
         uploadText = findViewById(R.id.uploadText)
+        albumButton = findViewById(R.id.albumButton)
+        albumButton.setOnClickListener { AlbumActivity.open(this, folder, site) }
         findViewById<TextView>(R.id.folderName).text =
             site?.let { "🏗 ${it.name} › $folder" } ?: "📁 $folder"
         updateCountText()
@@ -176,6 +188,37 @@ class CameraActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         orientationListener.enable()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshThumbnail(null)   // 앨범에서 지웠을 수도 있으니 다시 확인
+    }
+
+    /** 셔터 옆 앨범 버튼에 마지막 사진 표시 */
+    private fun refreshThumbnail(latest: Uri?) {
+        lifecycleScope.launch {
+            val bmp = withContext(Dispatchers.IO) {
+                val target = latest
+                    ?: Photos.list(this@CameraActivity, Photos.relativePath(site, folder)).firstOrNull()
+                target?.let { runCatching { contentResolver.loadThumbnail(it, Size(200, 200), null) }.getOrNull() }
+            }
+            if (bmp != null) albumButton.setImageBitmap(bmp)
+            else if (latest == null) albumButton.setImageDrawable(null)
+        }
+    }
+
+    /** 찍을 때 짧은 진동 */
+    private fun vibrate() {
+        val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Vibrator::class.java)
+        }
+        if (vibrator?.hasVibrator() == true) {
+            vibrator.vibrate(VibrationEffect.createOneShot(45, VibrationEffect.DEFAULT_AMPLITUDE))
+        }
     }
 
     override fun onStop() {
@@ -353,10 +396,7 @@ class CameraActivity : AppCompatActivity() {
         val uploader = SiteStore.uploader(this)
         if (currentSite != null && uploader.isNotBlank()) fileName = "${uploader}_$fileName"
         // 저장 폴더: 내장메모리/Pictures/폴더이름  (공유 현장은 Pictures/현장이름/폴더이름)
-        val relativePath = if (currentSite != null)
-            "${Environment.DIRECTORY_PICTURES}/${currentSite.name}/$folder"
-        else
-            "${Environment.DIRECTORY_PICTURES}/$folder"
+        val relativePath = Photos.relativePath(currentSite, folder)
         return ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.jpg")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -374,6 +414,7 @@ class CameraActivity : AppCompatActivity() {
         ).build()
 
         playFlash()
+        vibrate()
 
         capture.takePicture(
             options,
@@ -414,6 +455,7 @@ class CameraActivity : AppCompatActivity() {
     private fun onPhotoSaved(uri: Uri?) {
         savedCount++
         updateCountText()
+        refreshThumbnail(uri)
         val currentSite = site
         if (currentSite != null && uri != null) {
             UploadWorker.enqueue(this, uri, currentSite, folder)

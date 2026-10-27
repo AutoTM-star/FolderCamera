@@ -274,6 +274,24 @@ export default async (req) => {
         return json({ ok: true, name: folder });
       }
 
+      // 앱: 현장 폴더 삭제 (비어 있는 폴더만 — 다른 사람 사진 보호)
+      case "DELETE folders": {
+        const site = await siteByCode(url.searchParams.get("code"));
+        const folder = cleanName(url.searchParams.get("name"), "폴더 이름");
+        const base = `/me/drive/root:/${enc([ROOT, site.name, folder])}:`;
+        const { res, data } = await graph("GET", `${base}/children?$top=1&$select=name`);
+        if (res.status === 404) return json({ ok: true });
+        if (!res.ok) throw new HttpError(502, `OneDrive 오류: ${data?.error?.message || res.status}`);
+        if ((data.value || []).length > 0) {
+          throw new HttpError(409, "사진이 들어 있는 폴더는 지울 수 없어요. 관리자가 OneDrive에서 정리해 주세요");
+        }
+        const del = await graph("DELETE", base);
+        if (!del.res.ok && del.res.status !== 404) {
+          throw new HttpError(502, `폴더 삭제 실패: ${del.data?.error?.message || del.res.status}`);
+        }
+        return json({ ok: true });
+      }
+
       // 앱: 사진 업로드 주소 발급 (사진은 폰 → OneDrive로 직접 전송됨)
       case "POST upload": {
         const site = await siteByCode(body.code);

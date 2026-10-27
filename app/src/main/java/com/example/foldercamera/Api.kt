@@ -51,6 +51,11 @@ object Api {
         request("POST", "$server/api/folders", JSONObject().put("code", code).put("name", name))
     }
 
+    /** 비어 있는 현장 폴더 삭제 (사진이 있으면 서버가 409로 거절) */
+    fun deleteFolder(server: String, code: String, name: String) {
+        request("DELETE", "$server/api/folders?code=${enc(code)}&name=${enc(name)}")
+    }
+
     /** OneDrive 업로드 주소 받기 */
     fun uploadUrl(server: String, code: String, folder: String, fileName: String): String =
         request(

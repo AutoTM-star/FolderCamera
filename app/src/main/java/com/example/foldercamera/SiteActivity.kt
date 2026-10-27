@@ -3,8 +3,9 @@ package com.example.foldercamera
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.PopupMenu
+import android.widget.Toast
 import android.widget.FrameLayout
 import android.widget.ListView
 import android.widget.TextView
@@ -24,7 +25,7 @@ class SiteActivity : AppCompatActivity() {
     private lateinit var site: Site
     private lateinit var statusText: TextView
     private val folders = mutableListOf<String>()
-    private lateinit var adapter: ArrayAdapter<String>
+    private lateinit var adapter: FolderAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,9 +36,13 @@ class SiteActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         val list = findViewById<ListView>(R.id.folderList)
         list.emptyView = findViewById(R.id.emptyText)
-        adapter = ArrayAdapter(this, R.layout.item_folder, folders)
+        adapter = FolderAdapter(this, folders) { position, anchor -> showMenu(position, anchor) }
         list.adapter = adapter
         list.setOnItemClickListener { _, _, position, _ -> openCamera(folders[position]) }
+        list.setOnItemLongClickListener { _, view, position, _ ->
+            showMenu(position, view.findViewById<View>(R.id.menuButton) ?: view)
+            true
+        }
 
         findViewById<View>(R.id.addFolderButton).setOnClickListener { showCreateDialog() }
         findViewById<View>(R.id.refreshButton).setOnClickListener { load() }
@@ -115,6 +120,46 @@ class SiteActivity : AppCompatActivity() {
             }
         }
         dialog.show()
+    }
+
+    private fun showMenu(position: Int, anchor: View) {
+        val folder = folders.getOrNull(position) ?: return
+        val popup = PopupMenu(this, anchor)
+        popup.menu.add(0, 1, 0, "🖼 앨범 보기 (이 폰에서 찍은 사진)")
+        popup.menu.add(0, 2, 1, "🗑 폴더 삭제")
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> AlbumActivity.open(this, folder, site)
+                2 -> confirmDelete(folder)
+            }
+            true
+        }
+        popup.show()
+    }
+
+    private fun confirmDelete(folder: String) {
+        AlertDialog.Builder(this)
+            .setTitle("'$folder' 폴더 삭제")
+            .setMessage("모든 참여자의 목록에서 지워져요.\n사진이 하나라도 올라간 폴더는 지울 수 없어요 (다른 사람 사진 보호).")
+            .setPositiveButton("삭제") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { Api.deleteFolder(site.server, site.code, folder) }
+                        Toast.makeText(this@SiteActivity, "'$folder' 폴더를 삭제했어요", Toast.LENGTH_SHORT).show()
+                        load()
+                    } catch (e: ApiException) {
+                        AlertDialog.Builder(this@SiteActivity)
+                            .setTitle("삭제할 수 없어요")
+                            .setMessage(e.message)
+                            .setPositiveButton("확인", null)
+                            .show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@SiteActivity, "인터넷 연결을 확인하세요", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
     private fun openCamera(folder: String) {

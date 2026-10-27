@@ -4,8 +4,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.PopupMenu
+import android.widget.Toast
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ListView
@@ -33,7 +34,7 @@ class MainActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("folders", MODE_PRIVATE) }
     private val entries = mutableListOf<Entry>()
     private val labels = mutableListOf<String>()
-    private lateinit var adapter: ArrayAdapter<String>
+    private lateinit var adapter: FolderAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,7 +43,7 @@ class MainActivity : AppCompatActivity() {
 
         val list = findViewById<ListView>(R.id.folderList)
         list.emptyView = findViewById(R.id.emptyText)
-        adapter = ArrayAdapter(this, R.layout.item_folder, labels)
+        adapter = FolderAdapter(this, labels) { position, anchor -> showMenu(position, anchor) }
         list.adapter = adapter
 
         list.setOnItemClickListener { _, _, position, _ ->
@@ -53,11 +54,8 @@ class MainActivity : AppCompatActivity() {
                 is Entry.Local -> openCamera(e.name)
             }
         }
-        list.setOnItemLongClickListener { _, _, position, _ ->
-            when (val e = entries[position]) {
-                is Entry.Shared -> confirmLeave(e.site)
-                is Entry.Local -> confirmRemove(e.name)
-            }
+        list.setOnItemLongClickListener { _, view, position, _ ->
+            showMenu(position, view.findViewById<View>(R.id.menuButton) ?: view)
             true
         }
 
@@ -129,16 +127,61 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun confirmRemove(name: String) {
-        AlertDialog.Builder(this)
-            .setTitle("'$name' 목록에서 삭제")
-            .setMessage("목록에서만 지워져요.\n이미 찍은 사진은 갤러리의 '$name' 폴더에 그대로 남아요.")
-            .setPositiveButton("삭제") { _, _ ->
+    /** ⋮ 메뉴 (또는 길게 누르기) */
+    private fun showMenu(position: Int, anchor: View) {
+        val entry = entries.getOrNull(position) ?: return
+        val popup = PopupMenu(this, anchor)
+        when (entry) {
+            is Entry.Local -> {
+                popup.menu.add(0, 1, 0, "🖼 앨범 보기")
+                popup.menu.add(0, 2, 1, "🗑 폴더 삭제")
+            }
+            is Entry.Shared -> {
+                popup.menu.add(0, 3, 0, "🚪 현장 나가기")
+            }
+        }
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> AlbumActivity.open(this, (entry as Entry.Local).name, null)
+                2 -> confirmDelete((entry as Entry.Local).name)
+                3 -> confirmLeave((entry as Entry.Shared).site)
+            }
+            true
+        }
+        popup.show()
+    }
+
+    private fun confirmDelete(name: String) {
+        lifecycleScope.launch {
+            val path = Photos.relativePath(null, name)
+            val count = withContext(Dispatchers.IO) { Photos.list(this@MainActivity, path).size }
+            val removeFromList = {
                 prefs.edit().putStringSet(KEY_FOLDERS, localFolders().apply { remove(name) }).apply()
                 reload()
             }
-            .setNegativeButton("취소", null)
-            .show()
+            if (count == 0) {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("'$name' 폴더 삭제")
+                    .setMessage("빈 폴더예요. 삭제할까요?")
+                    .setPositiveButton("삭제") { _, _ -> removeFromList() }
+                    .setNegativeButton("취소", null)
+                    .show()
+                return@launch
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("'$name' 폴더 삭제")
+                .setMessage("이 폴더에 사진이 ${count}장 있어요.\n\n• 사진까지 삭제: 사진도 폰에서 지워져요 (되돌릴 수 없음)\n• 목록에서만 삭제: 사진은 갤러리에 남아요")
+                .setPositiveButton("사진까지 삭제") { _, _ ->
+                    lifecycleScope.launch {
+                        val deleted = withContext(Dispatchers.IO) { Photos.deleteAll(this@MainActivity, path) }
+                        removeFromList()
+                        Toast.makeText(this@MainActivity, "사진 ${deleted}장과 폴더를 삭제했어요", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNeutralButton("목록에서만 삭제") { _, _ -> removeFromList() }
+                .setNegativeButton("취소", null)
+                .show()
+        }
     }
 
     private fun openCamera(folder: String) {
